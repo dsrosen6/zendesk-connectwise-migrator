@@ -19,16 +19,16 @@ type Client struct {
 }
 
 type Creds struct {
-	token     string
-	username  string
-	subdomain string
+	Token     string
+	Username  string
+	Subdomain string
 }
 
 func NewClient(creds *Creds) *Client {
-	creds.username = fmt.Sprintf("%s/token", creds.username)
+	creds.Username = fmt.Sprintf("%s/token", creds.Username)
 	return &Client{
 		creds:      creds,
-		baseUrl:    fmt.Sprintf("https://%s.%s", creds.subdomain, zendeskApiUrl),
+		baseUrl:    fmt.Sprintf("https://%s.%s", creds.Subdomain, zendeskApiUrl),
 		httpClient: &http.Client{},
 	}
 }
@@ -40,7 +40,7 @@ func (c *Client) apiRequest(ctx context.Context, method, url string, body io.Rea
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.SetBasicAuth(c.creds.username, c.creds.token)
+	req.SetBasicAuth(c.creds.Username, c.creds.Token)
 
 	res, err := c.httpClient.Do(req)
 	if err != nil {

@@ -53,13 +53,13 @@ type User struct {
 	} `json:"user"`
 }
 
-func (c *Client) GetUser(ctx context.Context, userId int64) (*User, error) {
+func (c *Client) GetUser(ctx context.Context, userId int64) (User, error) {
 	url := fmt.Sprintf("%s/users/%d", c.baseUrl, userId)
 	u := &User{}
 
 	if err := c.apiRequest(ctx, "GET", url, nil, &u); err != nil {
-		return nil, fmt.Errorf("an error occured getting the user: %w", err)
+		return User{}, fmt.Errorf("an error occured getting the user: %w", err)
 	}
 
-	return u, nil
+	return *u, nil
 }

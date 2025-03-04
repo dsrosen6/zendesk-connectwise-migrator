@@ -69,52 +69,8 @@ type Ticket struct {
 }
 
 type TicketComments struct {
-	Comments []struct {
-		Id          int64         `json:"id"`
-		Type        string        `json:"type"`
-		AuthorId    int64         `json:"author_id"`
-		Body        string        `json:"body"`
-		HtmlBody    string        `json:"html_body"`
-		PlainBody   string        `json:"plain_body"`
-		Public      bool          `json:"public"`
-		Attachments []interface{} `json:"attachments"`
-		AuditId     int64         `json:"audit_id"`
-		Via         struct {
-			Channel string `json:"channel"`
-			Source  struct {
-				From struct {
-					Address            string   `json:"address,omitempty"`
-					Name               string   `json:"name,omitempty"`
-					OriginalRecipients []string `json:"original_recipients,omitempty"`
-				} `json:"from"`
-				To struct {
-					Name     string  `json:"name"`
-					Address  string  `json:"address"`
-					EmailCcs []int64 `json:"email_ccs,omitempty"`
-				} `json:"to"`
-				Rel interface{} `json:"rel"`
-			} `json:"source"`
-		} `json:"via"`
-		CreatedAt time.Time `json:"created_at"`
-		Metadata  struct {
-			System struct {
-				MessageId           string  `json:"message_id,omitempty"`
-				EmailId             string  `json:"email_id,omitempty"`
-				RawEmailIdentifier  string  `json:"raw_email_identifier,omitempty"`
-				JsonEmailIdentifier string  `json:"json_email_identifier,omitempty"`
-				EmlRedacted         bool    `json:"eml_redacted,omitempty"`
-				Location            string  `json:"location"`
-				Latitude            float64 `json:"latitude"`
-				Longitude           float64 `json:"longitude"`
-				Client              string  `json:"client,omitempty"`
-				IpAddress           string  `json:"ip_address,omitempty"`
-			} `json:"system"`
-			Custom struct {
-			} `json:"custom"`
-			SuspensionTypeId interface{} `json:"suspension_type_id"`
-		} `json:"metadata"`
-	} `json:"comments"`
-	Meta struct {
+	Comments []Comment `json:"comments"`
+	Meta     struct {
 		HasMore      bool   `json:"has_more"`
 		AfterCursor  string `json:"after_cursor"`
 		BeforeCursor string `json:"before_cursor"`
@@ -125,24 +81,70 @@ type TicketComments struct {
 	} `json:"links"`
 }
 
-func (c *Client) GetTicket(ctx context.Context, ticketId int64) (*Ticket, error) {
+type Comment struct {
+	Id          int64         `json:"id"`
+	Type        string        `json:"type"`
+	AuthorId    int64         `json:"author_id"`
+	Body        string        `json:"body"`
+	HtmlBody    string        `json:"html_body"`
+	PlainBody   string        `json:"plain_body"`
+	Public      bool          `json:"public"`
+	Attachments []interface{} `json:"attachments"`
+	AuditId     int64         `json:"audit_id"`
+	Via         struct {
+		Channel string `json:"channel"`
+		Source  struct {
+			From struct {
+				Address            string   `json:"address,omitempty"`
+				Name               string   `json:"name,omitempty"`
+				OriginalRecipients []string `json:"original_recipients,omitempty"`
+			} `json:"from"`
+			To struct {
+				Name     string  `json:"name"`
+				Address  string  `json:"address"`
+				EmailCcs []int64 `json:"email_ccs,omitempty"`
+			} `json:"to"`
+			Rel interface{} `json:"rel"`
+		} `json:"source"`
+	} `json:"via"`
+	CreatedAt time.Time `json:"created_at"`
+	Metadata  struct {
+		System struct {
+			MessageId           string  `json:"message_id,omitempty"`
+			EmailId             string  `json:"email_id,omitempty"`
+			RawEmailIdentifier  string  `json:"raw_email_identifier,omitempty"`
+			JsonEmailIdentifier string  `json:"json_email_identifier,omitempty"`
+			EmlRedacted         bool    `json:"eml_redacted,omitempty"`
+			Location            string  `json:"location"`
+			Latitude            float64 `json:"latitude"`
+			Longitude           float64 `json:"longitude"`
+			Client              string  `json:"client,omitempty"`
+			IpAddress           string  `json:"ip_address,omitempty"`
+		} `json:"system"`
+		Custom struct {
+		} `json:"custom"`
+		SuspensionTypeId interface{} `json:"suspension_type_id"`
+	} `json:"metadata"`
+}
+
+func (c *Client) GetTicket(ctx context.Context, ticketId int64) (Ticket, error) {
 	url := fmt.Sprintf("%s/tickets/%d", c.baseUrl, ticketId)
 	t := &Ticket{}
 
 	if err := c.apiRequest(ctx, "GET", url, nil, &t); err != nil {
-		return nil, fmt.Errorf("an error occured getting the ticket: %w", err)
+		return Ticket{}, fmt.Errorf("an error occured getting the ticket: %w", err)
 	}
 
-	return t, nil
+	return *t, nil
 }
 
-func (c *Client) GetAllTicketComments(ctx context.Context, ticketId int64) (*TicketComments, error) {
+func (c *Client) GetAllTicketComments(ctx context.Context, ticketId int64) (TicketComments, error) {
 	initialUrl := fmt.Sprintf("%s/tickets/%d/comments.json?page[size]=100", c.baseUrl, ticketId)
 	allComments := &TicketComments{}
 	currentPage := &TicketComments{}
 
 	if err := c.apiRequest(ctx, "GET", initialUrl, nil, &currentPage); err != nil {
-		return nil, fmt.Errorf("an error occured getting initial ticket comments: %w", err)
+		return TicketComments{}, fmt.Errorf("an error occured getting initial ticket comments: %w", err)
 	}
 
 	// Append the first page of comments to the allComments slice
@@ -152,7 +154,7 @@ func (c *Client) GetAllTicketComments(ctx context.Context, ticketId int64) (*Tic
 		nextPage := &TicketComments{}
 		log.Printf("Next page: %s", currentPage.Links.Next)
 		if err := c.apiRequest(ctx, "GET", currentPage.Links.Next, nil, &nextPage); err != nil {
-			return nil, fmt.Errorf("an error occured getting next page of ticket comments: %w", err)
+			return TicketComments{}, fmt.Errorf("an error occured getting next page of ticket comments: %w", err)
 		}
 
 		allComments.Comments = append(allComments.Comments, nextPage.Comments...)
@@ -160,5 +162,5 @@ func (c *Client) GetAllTicketComments(ctx context.Context, ticketId int64) (*Tic
 
 	}
 
-	return allComments, nil
+	return *allComments, nil
 }
