@@ -11,7 +11,9 @@ type InputTicket struct {
 	subject            string
 	initialDescription string
 	requester          zendesk.User
+	assignee           zendesk.User
 	comments           []commentInput
+	status             string // ie, "closed"
 }
 
 type commentInput struct {
@@ -38,6 +40,9 @@ func (c *Client) ConstructInputTicket(ctx context.Context, ticketId int64) (*Inp
 		return nil, fmt.Errorf("an error occured getting ticket requester: %w", err)
 	}
 
+	// don't error - if assignee is nil, it will be ignored
+	assignee, _ := c.zendeskClient.GetUser(ctx, ticketInfo.Ticket.AssigneeId)
+
 	var comments []commentInput
 	for _, comment := range rawComments.Comments {
 		ci, err := c.createCommentInput(ctx, comment)
@@ -51,7 +56,9 @@ func (c *Client) ConstructInputTicket(ctx context.Context, ticketId int64) (*Inp
 		subject:            ticketInfo.Ticket.Subject,
 		initialDescription: ticketInfo.Ticket.Description,
 		requester:          requester,
+		assignee:           assignee,
 		comments:           comments,
+		status:             ticketInfo.Ticket.Status,
 	}, nil
 }
 
