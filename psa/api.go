@@ -20,19 +20,19 @@ type Client struct {
 }
 
 type Creds struct {
-	CompanyId  string
-	PublicKey  string
-	PrivateKey string
-	ClientId   string
+	CompanyId  string `json:"company_id"`
+	PublicKey  string `json:"public_key"`
+	PrivateKey string `json:"private_key"`
+	ClientId   string `json:"client_id"`
 }
 
-func NewClient(creds *Creds) *Client {
+func NewClient(creds *Creds, httpClient *http.Client) *Client {
 	username := fmt.Sprintf("%s+%s", creds.CompanyId, creds.PublicKey)
 
 	return &Client{
 		encodedCreds: basicAuth(username, creds.PrivateKey),
 		clientId:     creds.ClientId,
-		httpClient:   &http.Client{},
+		httpClient:   httpClient,
 	}
 }
 

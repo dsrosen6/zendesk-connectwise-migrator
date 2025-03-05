@@ -19,17 +19,17 @@ type Client struct {
 }
 
 type Creds struct {
-	Token     string
-	Username  string
-	Subdomain string
+	Token     string `json:"token"`
+	Username  string `json:"username"`
+	Subdomain string `json:"subdomain"`
 }
 
-func NewClient(creds *Creds) *Client {
+func NewClient(creds *Creds, httpClient *http.Client) *Client {
 	creds.Username = fmt.Sprintf("%s/token", creds.Username)
 	return &Client{
 		creds:      creds,
 		baseUrl:    fmt.Sprintf("https://%s.%s", creds.Subdomain, zendeskApiUrl),
-		httpClient: &http.Client{},
+		httpClient: httpClient,
 	}
 }
 
