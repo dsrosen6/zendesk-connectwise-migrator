@@ -1,12 +1,14 @@
 package migration
 
 import (
-	"github.com/dsrosen/zendesk-connectwise-migrator/psa"
+	"github.com/dsrosen/zendesk-connectwise-migrator/cw"
 	"github.com/dsrosen/zendesk-connectwise-migrator/zendesk"
+	"net/http"
 )
 
 type Client struct {
 	zendeskClient *zendesk.Client
+	cwClient      *cw.Client
 }
 
 type Agent struct {
@@ -15,8 +17,11 @@ type Agent struct {
 	CwId      int    `json:"connectwise_member_id"`
 }
 
-func NewClient(zendeskCreds *zendesk.Creds, cwCreds *psa.Creds) *Client {
+func NewClient(zendeskCreds zendesk.Creds, cwCreds cw.Creds) *Client {
+	httpClient := http.DefaultClient
+
 	return &Client{
-		zendeskClient: zendeskClient,
+		zendeskClient: zendesk.NewClient(zendeskCreds, httpClient),
+		cwClient:      cw.NewClient(cwCreds, httpClient),
 	}
 }

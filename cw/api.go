@@ -1,4 +1,4 @@
-package psa
+package cw
 
 import (
 	"context"
@@ -26,7 +26,7 @@ type Creds struct {
 	ClientId   string `json:"client_id"`
 }
 
-func NewClient(creds *Creds, httpClient *http.Client) *Client {
+func NewClient(creds Creds, httpClient *http.Client) *Client {
 	username := fmt.Sprintf("%s+%s", creds.CompanyId, creds.PublicKey)
 
 	return &Client{

@@ -3,9 +3,10 @@ package cmd
 import (
 	"errors"
 	"fmt"
+	"github.com/dsrosen/zendesk-connectwise-migrator/cw"
 	"github.com/dsrosen/zendesk-connectwise-migrator/migration"
-	"github.com/dsrosen/zendesk-connectwise-migrator/psa"
 	"github.com/dsrosen/zendesk-connectwise-migrator/zendesk"
+	"log/slog"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -17,6 +18,7 @@ const (
 )
 
 var cfgFile string
+var verbose bool
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
@@ -30,8 +32,15 @@ This application is a tool to generate the needed files
 to quickly create a Cobra application.`,
 	// Uncomment the following line if your bare application
 	// has an action associated with it:
+	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		slog.SetDefault(setLogger(verbose))
+	},
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println(viper.GetViper().GetString("test"))
+		missing := verifyConfigSet()
+		if len(missing) > 0 {
+			fmt.Println("Missing config fields:", missing)
+			os.Exit(1)
+		}
 	},
 }
 
@@ -45,16 +54,14 @@ func Execute() {
 }
 
 func init() {
+	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.zendesk-connectwise-migrator.yaml)")
+	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "verbose output")
+
 	cobra.OnInitialize(initConfig)
 
 	// Here you will define your flags and configuration settings.
 	// Cobra supports persistent flags, which, if defined here,
 	// will be global for your application.
-	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.zendesk-connectwise-migrator.yaml)")
-
-	// Cobra also supports local flags, which will only run
-	// when this action is called directly.
-	rootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 }
 
 // initConfig reads in config file and ENV variables if set.
@@ -74,21 +81,20 @@ func initConfig() {
 	}
 
 	// If a config file is found, read it in.
-	if err := viper.ReadInConfig(); err == nil {
-		fmt.Println("Using config file:", viper.ConfigFileUsed())
-	} else {
-
+	if err := viper.ReadInConfig(); err != nil {
 		var configFileNotFoundError viper.ConfigFileNotFoundError
 		if errors.As(err, &configFileNotFoundError) {
-			fmt.Println("Config file not found - creating default. Please edit the file at ~/migrator_config.json")
 			setCfgDefaults()
-			fmt.Println("Writing default config file to: ", home)
-			if err := viper.WriteConfigAs(home + configFileSubPath); err != nil {
-				fmt.Println("Error writing config file: ", err)
+			path := home + configFileSubPath
+			fmt.Println("Creating default config file")
+			if err := viper.WriteConfigAs(path); err != nil {
+				fmt.Println("Error creating default config file:", err)
 				os.Exit(1)
 			}
+			fmt.Println("Config file created - location:", path)
+			fmt.Println("Please fill in the necessary fields and run the program again.")
 		} else {
-			fmt.Println("Error reading config file: ", err)
+			fmt.Println("Error reading config file:", err)
 			os.Exit(1)
 		}
 	}
@@ -100,11 +106,56 @@ func setCfgDefaults() {
 	})
 
 	viper.SetDefault("connectwise_psa", map[string]any{
-		"api_creds":            psa.Creds{},
-		"destination_board_id": "",
-		"open_status_id":       "",
-		"closed_status_id":     "",
+		"api_creds":            cw.Creds{},
+		"destination_board_id": 0,
+		"open_status_id":       0,
+		"closed_status_id":     0,
 	})
 
 	viper.SetDefault("agent_mappings", []migration.Agent{{}, {}}) // prefill with empty agents
+	viper.SetDefault("debug", false)
+}
+
+func setLogger(v bool) *slog.Logger {
+	level := slog.LevelInfo
+	if v {
+		level = slog.LevelDebug
+	}
+
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: level}))
+	return logger
+}
+
+func verifyConfigSet() []string {
+	var missing []string
+
+	keysWithStrVal := []string{
+		"zendesk.api_creds.token",
+		"zendesk.api_creds.username",
+		"zendesk.api_creds.subdomain",
+		"connectwise_psa.api_creds.company_id",
+		"connectwise_psa.api_creds.public_key",
+		"connectwise_psa.api_creds.private_key",
+		"connectwise_psa.api_creds.client_id",
+	}
+
+	keysWithIntVal := []string{
+		"connectwise_psa.destination_board_id",
+		"connectwise_psa.open_status_id",
+		"connectwise_psa.closed_status_id",
+	}
+
+	for _, key := range keysWithStrVal {
+		if viper.GetString(key) == "" {
+			missing = append(missing, key)
+		}
+	}
+
+	for _, key := range keysWithIntVal {
+		if viper.GetInt(key) == 0 {
+			missing = append(missing, key)
+		}
+	}
+
+	return missing
 }

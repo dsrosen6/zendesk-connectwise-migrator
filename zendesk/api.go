@@ -13,7 +13,7 @@ const (
 )
 
 type Client struct {
-	creds      *Creds
+	creds      Creds
 	baseUrl    string
 	httpClient *http.Client
 }
@@ -24,7 +24,7 @@ type Creds struct {
 	Subdomain string `json:"subdomain"`
 }
 
-func NewClient(creds *Creds, httpClient *http.Client) *Client {
+func NewClient(creds Creds, httpClient *http.Client) *Client {
 	creds.Username = fmt.Sprintf("%s/token", creds.Username)
 	return &Client{
 		creds:      creds,
