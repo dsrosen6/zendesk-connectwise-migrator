@@ -3,6 +3,7 @@ package cw
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"time"
 )
 
@@ -136,10 +137,11 @@ type Company struct {
 }
 
 func (c *Client) GetCompanyByName(ctx context.Context, name string) (Company, error) {
-	url := fmt.Sprintf("%s/company/companies?conditions=name=\"%s\"", baseUrl, name)
+	query := url.QueryEscape(fmt.Sprintf("name=\"%s\"", name))
+	u := fmt.Sprintf("%s/company/companies?conditions=%s", baseUrl, query)
 	co := Companies{}
 
-	if err := c.apiRequest(ctx, "GET", url, nil, &co); err != nil {
+	if err := c.apiRequest(ctx, "GET", u, nil, &co); err != nil {
 		return Company{}, fmt.Errorf("an error occured getting the company: %w", err)
 	}
 
