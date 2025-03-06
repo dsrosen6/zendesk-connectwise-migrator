@@ -2,13 +2,14 @@ package cmd
 
 import (
 	"fmt"
-	"github.com/spf13/cobra"
 	"strconv"
+
+	"github.com/spf13/cobra"
 )
 
-var inputCmd = &cobra.Command{
-	Use:     "get-input-ticket",
-	Aliases: []string{"ip"},
+// matchCmd represents the match command
+var matchCmd = &cobra.Command{
+	Use: "match",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if len(args) != 1 {
 			return fmt.Errorf("expected exactly one argument (ticket ID)")
@@ -23,20 +24,18 @@ var inputCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("an error occured constructing input ticket: %w", err)
 		}
-
-		fmt.Println("Subject:", i.Subject)
-		fmt.Println("Organization:", i.Organization.Organization.Name)
-		fmt.Println("Requester:", i.Requester.User.Name)
-		fmt.Println("Assignee:", i.Assignee.User.Name)
-		fmt.Println("Total Comments:", len(i.Comments))
-		fmt.Println("Closed:", i.Closed)
-		if i.Closed {
-			fmt.Println("Closed At:", i.ClosedAt)
+		
+		m, err := client.MatchOrgToCompany(ctx, i.Organization)
+		if err != nil {
+			return fmt.Errorf("an error occured matching org to company: %w", err)
 		}
+
+		fmt.Println("Matched Company:", m.Name)
+		fmt.Println("Matched Company ID:", m.Id)
 		return nil
 	},
 }
 
 func init() {
-	rootCmd.AddCommand(inputCmd)
+	rootCmd.AddCommand(matchCmd)
 }

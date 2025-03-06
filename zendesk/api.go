@@ -33,6 +33,17 @@ func NewClient(creds Creds, httpClient *http.Client) *Client {
 	}
 }
 
+func (c *Client) TestConnection(ctx context.Context) error {
+	url := fmt.Sprintf("%s/users?page[size]=1", c.baseUrl)
+
+	u := &Users{}
+	if err := c.apiRequest(ctx, "GET", url, nil, &u); err != nil {
+		return fmt.Errorf("an error occured testing the connection: %w", err)
+	}
+
+	return nil
+}
+
 func (c *Client) apiRequest(ctx context.Context, method, url string, body io.Reader, target interface{}) error {
 	req, err := http.NewRequestWithContext(ctx, method, url, body)
 	if err != nil {

@@ -25,7 +25,6 @@ type Config struct {
 	AgentMappings []migration.Agent `mapstructure:"agentMappings"`
 	Zendesk       ZendeskConfig     `mapstructure:"zendesk"`
 	CW            CwConfig          `mapstructure:"connectwisePsa"`
-	Debug         bool              `mapstructure:"debug"`
 }
 
 type ZendeskConfig struct {
@@ -88,7 +87,6 @@ func setCfgDefaults() {
 	})
 
 	viper.SetDefault("agentMappings", []migration.Agent{{}, {}}) // prefill with empty agents
-	viper.SetDefault("debug", false)
 }
 
 func validateConfig(cfg Config) error {

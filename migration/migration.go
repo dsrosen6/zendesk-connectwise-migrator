@@ -7,8 +7,8 @@ import (
 )
 
 type Client struct {
-	zendeskClient *zendesk.Client
-	cwClient      *cw.Client
+	ZendeskClient *zendesk.Client
+	CwClient      *cw.Client
 }
 
 type Agent struct {
@@ -21,7 +21,7 @@ func NewClient(zendeskCreds zendesk.Creds, cwCreds cw.Creds) *Client {
 	httpClient := http.DefaultClient
 
 	return &Client{
-		zendeskClient: zendesk.NewClient(zendeskCreds, httpClient),
-		cwClient:      cw.NewClient(cwCreds, httpClient),
+		ZendeskClient: zendesk.NewClient(zendeskCreds, httpClient),
+		CwClient:      cw.NewClient(cwCreds, httpClient),
 	}
 }

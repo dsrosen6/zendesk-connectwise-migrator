@@ -6,6 +6,10 @@ import (
 	"time"
 )
 
+type Users struct {
+	Users []User `json:"users"`
+}
+
 type User struct {
 	User struct {
 		Id                   int64         `json:"id"`
