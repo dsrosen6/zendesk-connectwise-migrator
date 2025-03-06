@@ -28,6 +28,10 @@ var inputCmd = &cobra.Command{
 		fmt.Println("Requester:", i.Requester.User.Name)
 		fmt.Println("Assignee:", i.Assignee.User.Name)
 		fmt.Println("Total Comments:", len(i.Comments))
+		fmt.Println("Closed:", i.Closed)
+		if i.Closed {
+			fmt.Println("Closed At:", i.ClosedAt)
+		}
 		return nil
 	},
 }

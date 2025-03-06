@@ -13,7 +13,8 @@ type InputTicket struct {
 	Requester          zendesk.User
 	Assignee           zendesk.User
 	Comments           []commentInput
-	Status             string // ie, "closed"
+	Closed             bool // ie, "closed"
+	ClosedAt           time.Time
 }
 
 type commentInput struct {
@@ -30,36 +31,40 @@ func (c *Client) ConstructInputTicket(ctx context.Context, ticketId int64) (*Inp
 		return nil, fmt.Errorf("an error occured getting initial ticket info: %w", err)
 	}
 
+	inputTicket := &InputTicket{
+		Subject:            ticketInfo.Ticket.Subject,
+		InitialDescription: ticketInfo.Ticket.Description,
+		Closed:             ticketInfo.Ticket.Status == "closed",
+		Comments:           []commentInput{},
+	}
+
 	rawComments, err := c.zendeskClient.GetAllTicketComments(ctx, ticketId)
 	if err != nil {
 		return nil, fmt.Errorf("an error occured getting ticket Comments: %w", err)
 	}
 
-	requester, err := c.zendeskClient.GetUser(ctx, ticketInfo.Ticket.RequesterId)
+	inputTicket.Requester, err = c.zendeskClient.GetUser(ctx, ticketInfo.Ticket.RequesterId)
 	if err != nil {
 		return nil, fmt.Errorf("an error occured getting ticket Requester: %w", err)
 	}
 
 	// don't error - if Assignee is nil, it will be ignored
-	assignee, _ := c.zendeskClient.GetUser(ctx, ticketInfo.Ticket.AssigneeId)
+	inputTicket.Assignee, _ = c.zendeskClient.GetUser(ctx, ticketInfo.Ticket.AssigneeId)
 
-	var comments []commentInput
 	for _, comment := range rawComments.Comments {
 		ci, err := c.createCommentInput(ctx, comment)
 		if err != nil {
 			return nil, fmt.Errorf("an error occured creating comment input: %w", err)
 		}
-		comments = append(comments, ci)
+
+		inputTicket.Comments = append(inputTicket.Comments, ci)
 	}
 
-	return &InputTicket{
-		Subject:            ticketInfo.Ticket.Subject,
-		InitialDescription: ticketInfo.Ticket.Description,
-		Requester:          requester,
-		Assignee:           assignee,
-		Comments:           comments,
-		Status:             ticketInfo.Ticket.Status,
-	}, nil
+	if inputTicket.Closed {
+		inputTicket.ClosedAt = ticketInfo.Ticket.UpdatedAt
+	}
+
+	return inputTicket, nil
 }
 
 func (c *Client) createCommentInput(ctx context.Context, comment zendesk.Comment) (commentInput, error) {
