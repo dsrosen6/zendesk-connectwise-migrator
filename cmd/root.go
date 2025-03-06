@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
+	"github.com/dsrosen/zendesk-connectwise-migrator/migration"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"log/slog"
@@ -10,6 +12,8 @@ import (
 
 var (
 	verbose bool
+	ctx     context.Context
+	client  *migration.Client
 )
 
 var rootCmd = &cobra.Command{
@@ -46,6 +50,7 @@ func setLogger(v bool) *slog.Logger {
 }
 
 func preRun(cmd *cobra.Command, args []string) error {
+	ctx = context.Background()
 	slog.SetDefault(setLogger(verbose))
 
 	if err := viper.Unmarshal(&config); err != nil {
@@ -56,5 +61,6 @@ func preRun(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("config validation: %w", err)
 	}
 
+	client = migration.NewClient(config.Zendesk.ApiCreds, config.CW.ApiCreds)
 	return nil
 }

@@ -8,20 +8,20 @@ import (
 )
 
 type InputTicket struct {
-	subject            string
-	initialDescription string
-	requester          zendesk.User
-	assignee           zendesk.User
-	comments           []commentInput
-	status             string // ie, "closed"
+	Subject            string
+	InitialDescription string
+	Requester          zendesk.User
+	Assignee           zendesk.User
+	Comments           []commentInput
+	Status             string // ie, "closed"
 }
 
 type commentInput struct {
-	sender    zendesk.User
-	ccs       []zendesk.User
-	body      string
-	public    bool
-	createdAt time.Time
+	Sender    zendesk.User
+	Ccs       []zendesk.User
+	Body      string
+	Public    bool
+	CreatedAt time.Time
 }
 
 func (c *Client) ConstructInputTicket(ctx context.Context, ticketId int64) (*InputTicket, error) {
@@ -32,15 +32,15 @@ func (c *Client) ConstructInputTicket(ctx context.Context, ticketId int64) (*Inp
 
 	rawComments, err := c.zendeskClient.GetAllTicketComments(ctx, ticketId)
 	if err != nil {
-		return nil, fmt.Errorf("an error occured getting ticket comments: %w", err)
+		return nil, fmt.Errorf("an error occured getting ticket Comments: %w", err)
 	}
 
 	requester, err := c.zendeskClient.GetUser(ctx, ticketInfo.Ticket.RequesterId)
 	if err != nil {
-		return nil, fmt.Errorf("an error occured getting ticket requester: %w", err)
+		return nil, fmt.Errorf("an error occured getting ticket Requester: %w", err)
 	}
 
-	// don't error - if assignee is nil, it will be ignored
+	// don't error - if Assignee is nil, it will be ignored
 	assignee, _ := c.zendeskClient.GetUser(ctx, ticketInfo.Ticket.AssigneeId)
 
 	var comments []commentInput
@@ -53,12 +53,12 @@ func (c *Client) ConstructInputTicket(ctx context.Context, ticketId int64) (*Inp
 	}
 
 	return &InputTicket{
-		subject:            ticketInfo.Ticket.Subject,
-		initialDescription: ticketInfo.Ticket.Description,
-		requester:          requester,
-		assignee:           assignee,
-		comments:           comments,
-		status:             ticketInfo.Ticket.Status,
+		Subject:            ticketInfo.Ticket.Subject,
+		InitialDescription: ticketInfo.Ticket.Description,
+		Requester:          requester,
+		Assignee:           assignee,
+		Comments:           comments,
+		Status:             ticketInfo.Ticket.Status,
 	}, nil
 }
 
@@ -80,10 +80,10 @@ func (c *Client) createCommentInput(ctx context.Context, comment zendesk.Comment
 	}
 
 	return commentInput{
-		sender:    sender,
-		ccs:       ccs,
-		body:      comment.PlainBody,
-		public:    comment.Public,
-		createdAt: comment.CreatedAt,
+		Sender:    sender,
+		Ccs:       ccs,
+		Body:      comment.PlainBody,
+		Public:    comment.Public,
+		CreatedAt: comment.CreatedAt,
 	}, nil
 }
