@@ -17,8 +17,13 @@ const (
 	configFileSubPath = "/migrator_config.json"
 )
 
-var cfgFile string
-var verbose bool
+var (
+	cfgFile      string
+	verbose      bool
+	zendeskCreds zendesk.Creds
+	cwCreds      cw.Creds
+	agents       []migration.Agent
+)
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
@@ -32,15 +37,9 @@ This application is a tool to generate the needed files
 to quickly create a Cobra application.`,
 	// Uncomment the following line if your bare application
 	// has an action associated with it:
-	PersistentPreRun: func(cmd *cobra.Command, args []string) {
-		slog.SetDefault(setLogger(verbose))
-	},
+	PersistentPreRunE: preRun,
 	Run: func(cmd *cobra.Command, args []string) {
-		missing := verifyConfigSet()
-		if len(missing) > 0 {
-			fmt.Println("Missing config fields:", missing)
-			os.Exit(1)
-		}
+
 	},
 }
 
@@ -105,14 +104,14 @@ func setCfgDefaults() {
 		"api_creds": zendesk.Creds{},
 	})
 
-	viper.SetDefault("connectwise_psa", map[string]any{
-		"api_creds":            cw.Creds{},
-		"destination_board_id": 0,
-		"open_status_id":       0,
-		"closed_status_id":     0,
+	viper.SetDefault("connectwisePsa", map[string]any{
+		"apiCreds":           cw.Creds{},
+		"destinationBoardId": 0,
+		"openStatusId":       0,
+		"closedStatusId":     0,
 	})
 
-	viper.SetDefault("agent_mappings", []migration.Agent{{}, {}}) // prefill with empty agents
+	viper.SetDefault("agentMappings", []migration.Agent{{}, {}}) // prefill with empty agents
 	viper.SetDefault("debug", false)
 }
 
@@ -130,19 +129,19 @@ func verifyConfigSet() []string {
 	var missing []string
 
 	keysWithStrVal := []string{
-		"zendesk.api_creds.token",
-		"zendesk.api_creds.username",
-		"zendesk.api_creds.subdomain",
-		"connectwise_psa.api_creds.company_id",
-		"connectwise_psa.api_creds.public_key",
-		"connectwise_psa.api_creds.private_key",
-		"connectwise_psa.api_creds.client_id",
+		"zendesk.apiCreds.token",
+		"zendesk.apiCreds.username",
+		"zendesk.apiCreds.subdomain",
+		"connectwisePsa.apiCreds.companyId",
+		"connectwisePsa.apiCreds.publicKey",
+		"connectwisePsa.apiCreds.privateKey",
+		"connectwisePsa.apiCreds.clientId",
 	}
 
 	keysWithIntVal := []string{
-		"connectwise_psa.destination_board_id",
-		"connectwise_psa.open_status_id",
-		"connectwise_psa.closed_status_id",
+		"connectwisePsa.destinationBoardId",
+		"connectwisePsa.openStatusId",
+		"connectwisePsa.closedStatusId",
 	}
 
 	for _, key := range keysWithStrVal {
@@ -158,4 +157,21 @@ func verifyConfigSet() []string {
 	}
 
 	return missing
+}
+
+func preRun(cmd *cobra.Command, args []string) error {
+	slog.SetDefault(setLogger(verbose))
+
+	missing := verifyConfigSet()
+	if len(missing) > 0 {
+
+		for _, key := range missing {
+			fmt.Println("Missing config value:", key)
+		}
+
+		fmt.Println("Please fill in missing fields in the config file and run the program again.")
+		os.Exit(1)
+	}
+	
+	return nil
 }

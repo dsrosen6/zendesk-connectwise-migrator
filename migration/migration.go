@@ -13,8 +13,8 @@ type Client struct {
 
 type Agent struct {
 	Name      string `json:"name"`
-	ZendeskId int    `json:"zendesk_user_id"`
-	CwId      int    `json:"connectwise_member_id"`
+	ZendeskId int    `json:"zendeskUserId"`
+	CwId      int    `json:"connectwiseMemberId"`
 }
 
 func NewClient(zendeskCreds zendesk.Creds, cwCreds cw.Creds) *Client {
