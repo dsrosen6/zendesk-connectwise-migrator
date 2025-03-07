@@ -6,14 +6,13 @@ import (
 	"github.com/dsrosen/zendesk-connectwise-migrator/migration"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"log/slog"
 	"os"
+	"path/filepath"
 )
 
 var (
-	verbose bool
-	ctx     context.Context
-	client  *migration.Client
+	ctx    context.Context
+	client *migration.Client
 )
 
 var rootCmd = &cobra.Command{
@@ -34,25 +33,26 @@ func Execute() {
 
 func init() {
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.zendesk-connectwise-migrator.yaml)")
-	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "verbose output")
-	
+
 	rootCmd.AddCommand(testCmd)
 	cobra.OnInitialize(initConfig)
 }
 
-func setLogger(v bool) *slog.Logger {
-	level := slog.LevelInfo
-	if v {
-		level = slog.LevelDebug
-	}
-
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: level}))
-	return logger
-}
-
 func preRun(cmd *cobra.Command, args []string) error {
 	ctx = context.Background()
-	slog.SetDefault(setLogger(verbose))
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("getting home directory: %w", err)
+	}
+
+	file, err := openLogFile(filepath.Join(home, "migrator.log"))
+	if err != nil {
+		return fmt.Errorf("opening log file: %w", err)
+	}
+
+	if err := setLogger(file); err != nil {
+		return fmt.Errorf("setting logger: %w", err)
+	}
 
 	if err := viper.Unmarshal(&config); err != nil {
 		return fmt.Errorf("unmarshaling config: %w", err)

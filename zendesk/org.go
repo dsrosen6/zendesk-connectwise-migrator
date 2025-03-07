@@ -3,9 +3,14 @@ package zendesk
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"net/url"
 	"time"
 )
 
+type Organizations struct {
+	Organizations []Organization `json:"results"`
+}
 type Organization struct {
 	Organization struct {
 		Url                string      `json:"url"`
@@ -24,6 +29,30 @@ type Organization struct {
 		OrganizationFields struct {
 		} `json:"organization_fields"`
 	} `json:"organization"`
+}
+
+func (c *Client) GetOrganizationsWithQuery(ctx context.Context, tags []string) ([]Organization, error) {
+	var q string
+	var r Organizations
+	var orgs []Organization
+
+	if len(tags) > 0 {
+		q = "type:organization"
+		for _, tag := range tags {
+			q += fmt.Sprintf(" tags:%s", tag)
+		}
+	}
+
+	q = url.QueryEscape(q)
+	slog.Debug("GetOrganizationsWithQuery:", "query", q)
+
+	if err := c.searchRequest(ctx, q, &r); err != nil {
+		return nil, fmt.Errorf("an error occured getting the organizations: %w", err)
+	}
+
+	orgs = r.Organizations
+
+	return orgs, nil
 }
 
 func (c *Client) GetOrganization(ctx context.Context, orgId int64) (Organization, error) {

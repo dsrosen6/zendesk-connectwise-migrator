@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"github.com/spf13/cobra"
+	"log/slog"
 	"strconv"
 )
 
@@ -59,6 +60,36 @@ var inputCmd = &cobra.Command{
 	},
 }
 
+var getCmd = &cobra.Command{
+	Use: "get",
+}
+
+// gets orgs by tags
+var getOrgsCmd = &cobra.Command{
+	Use:  "orgs",
+	Args: cobra.MinimumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		tags := args
+		orgs, err := client.ZendeskClient.GetOrganizationsWithQuery(ctx, tags)
+		if err != nil {
+			return fmt.Errorf("an error occured getting organizations: %w", err)
+		}
+
+		if len(orgs) == 0 {
+			fmt.Println("No organizations found")
+			return nil
+		}
+
+		slog.Debug("getOrgsCmd", "total_orgs", len(orgs))
+		fmt.Println("Orgs found:")
+		for _, o := range orgs {
+			fmt.Printf("   %s\n", o.Organization.Name)
+		}
+
+		return nil
+	},
+}
+
 var matchCmd = &cobra.Command{
 	Use: "match",
 }
@@ -94,7 +125,10 @@ var matchCompanyCmd = &cobra.Command{
 func init() {
 	testCmd.AddCommand(testConnectionCmd)
 	testCmd.AddCommand(inputCmd)
+	testCmd.AddCommand(getCmd)
 	testCmd.AddCommand(matchCmd)
+
+	getCmd.AddCommand(getOrgsCmd)
 
 	matchCmd.AddCommand(matchCompanyCmd)
 }

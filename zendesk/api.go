@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 )
 
@@ -39,6 +40,16 @@ func (c *Client) TestConnection(ctx context.Context) error {
 	u := &Users{}
 	if err := c.apiRequest(ctx, "GET", url, nil, &u); err != nil {
 		return fmt.Errorf("an error occured testing the connection: %w", err)
+	}
+
+	return nil
+}
+
+func (c *Client) searchRequest(ctx context.Context, query string, target interface{}) error {
+	u := fmt.Sprintf("%s/search.json?query=%s", c.baseUrl, query)
+	slog.Debug("zendesk.Client.searchRequest", "url", u)
+	if err := c.apiRequest(ctx, "GET", u, nil, target); err != nil {
+		return fmt.Errorf("an error occured searching for the resource: %w", err)
 	}
 
 	return nil
