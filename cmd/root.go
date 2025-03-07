@@ -13,6 +13,7 @@ import (
 var (
 	ctx    context.Context
 	client *migration.Client
+	debug  bool
 )
 
 var rootCmd = &cobra.Command{
@@ -33,7 +34,7 @@ func Execute() {
 
 func init() {
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.zendesk-connectwise-migrator.yaml)")
-
+	rootCmd.PersistentFlags().BoolP("debug", "d", false, "enable debug logging")
 	rootCmd.AddCommand(testCmd)
 	cobra.OnInitialize(initConfig)
 }
@@ -48,6 +49,11 @@ func preRun(cmd *cobra.Command, args []string) error {
 	file, err := openLogFile(filepath.Join(home, "migrator.log"))
 	if err != nil {
 		return fmt.Errorf("opening log file: %w", err)
+	}
+
+	debug, err = cmd.Flags().GetBool("debug")
+	if err != nil {
+		return fmt.Errorf("getting debug flag: %w", err)
 	}
 
 	if err := setLogger(file); err != nil {

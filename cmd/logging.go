@@ -11,9 +11,13 @@ type FileHandler struct {
 }
 
 func setLogger(file *os.File) error {
+	level := slog.LevelInfo
+	if debug {
+		level = slog.LevelDebug
+	}
 
 	logger := slog.New(slog.NewJSONHandler(file, &slog.HandlerOptions{
-		Level: slog.LevelDebug,
+		Level: level,
 	}))
 
 	slog.SetDefault(logger)
