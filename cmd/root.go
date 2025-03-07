@@ -35,7 +35,8 @@ func Execute() {
 func init() {
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.zendesk-connectwise-migrator.yaml)")
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "verbose output")
-
+	
+	rootCmd.AddCommand(testCmd)
 	cobra.OnInitialize(initConfig)
 }
 
