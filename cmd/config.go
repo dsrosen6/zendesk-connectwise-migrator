@@ -22,20 +22,27 @@ var (
 )
 
 type Config struct {
-	AgentMappings []migration.Agent `mapstructure:"agentMappings"`
-	Zendesk       ZendeskConfig     `mapstructure:"zendesk"`
-	CW            CwConfig          `mapstructure:"connectwisePsa"`
+	AgentMappings []migration.Agent `mapstructure:"agent_mappings" json:"agent_mappings"`
+	Zendesk       ZendeskConfig     `mapstructure:"zendesk" json:"zendesk"`
+	CW            CwConfig          `mapstructure:"connectwise_psa" json:"connectwise_psa"`
 }
 
 type ZendeskConfig struct {
-	ApiCreds zendesk.Creds `mapstructure:"apiCreds"`
+	ApiCreds zendesk.Creds `mapstructure:"api_creds" json:"api_creds"`
+	FieldIds FieldIds      `mapstructure:"field_ids" json:"field_ids"`
+}
+
+type FieldIds struct {
+	PSACompanyId string `mapstructure:"psa_company_id" json:"psa_company_id"`
+	PSAContactId string `mapstructure:"psa_contact_id" json:"psa_contact_id"`
+	PSATicketId  int    `mapstructure:"psa_ticket_id" json:"psa_ticket_id"`
 }
 
 type CwConfig struct {
-	ApiCreds           cw.Creds `mapstructure:"apiCreds"`
-	ClosedStatusId     int      `mapstructure:"closedStatusId"`
-	OpenStatusId       int      `mapstructure:"openStatusId"`
-	DestinationBoardId int      `mapstructure:"destinationBoardId"`
+	ApiCreds           cw.Creds `mapstructure:"api_creds" json:"api_creds"`
+	ClosedStatusId     int      `mapstructure:"closed_status_id" json:"closed_status_id"`
+	OpenStatusId       int      `mapstructure:"open_status_id" json:"open_status_id"`
+	DestinationBoardId int      `mapstructure:"destination_board_id" json:"destination_board_id"`
 }
 
 // initConfig reads in config file and ENV variables if set.
@@ -75,18 +82,9 @@ func initConfig() {
 }
 
 func setCfgDefaults() {
-	viper.SetDefault("zendesk", map[string]any{
-		"api_creds": zendesk.Creds{},
-	})
-
-	viper.SetDefault("connectwisePsa", map[string]any{
-		"apiCreds":           cw.Creds{},
-		"destinationBoardId": 0,
-		"openStatusId":       0,
-		"closedStatusId":     0,
-	})
-
-	viper.SetDefault("agentMappings", []migration.Agent{{}, {}}) // prefill with empty agents
+	viper.SetDefault("agentMappings", []migration.Agent{{}}) // prefill with empty agent
+	viper.SetDefault("zendesk", ZendeskConfig{})
+	viper.SetDefault("connectwise_psa", CwConfig{})
 }
 
 func validateConfig(cfg Config) error {
@@ -112,12 +110,15 @@ func validateRequiredValues(cfg Config) error {
 		cfg.CW.ApiCreds.PublicKey,
 		cfg.CW.ApiCreds.PrivateKey,
 		cfg.CW.ApiCreds.ClientId,
+		cfg.Zendesk.FieldIds.PSACompanyId,
+		cfg.Zendesk.FieldIds.PSAContactId,
 	}
 
 	keysWithIntVal := []int{
 		cfg.CW.ClosedStatusId,
 		cfg.CW.OpenStatusId,
 		cfg.CW.DestinationBoardId,
+		cfg.Zendesk.FieldIds.PSATicketId,
 	}
 
 	// if value is empty, add key to missing

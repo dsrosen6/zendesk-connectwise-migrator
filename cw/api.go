@@ -20,10 +20,10 @@ type Client struct {
 }
 
 type Creds struct {
-	CompanyId  string `mapstructure:"companyId"`
-	PublicKey  string `mapstructure:"publicKey"`
-	PrivateKey string `mapstructure:"privateKey"`
-	ClientId   string `mapstructure:"clientId"`
+	CompanyId  string `mapstructure:"company_id" json:"company_id"`
+	PublicKey  string `mapstructure:"public_key" json:"public_key"`
+	PrivateKey string `mapstructure:"private_key" json:"private_key"`
+	ClientId   string `mapstructure:"client_id" json:"client_id"`
 }
 
 func NewClient(creds Creds, httpClient *http.Client) *Client {

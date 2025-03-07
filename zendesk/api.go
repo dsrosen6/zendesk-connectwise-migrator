@@ -19,9 +19,9 @@ type Client struct {
 }
 
 type Creds struct {
-	Token     string `mapstructure:"token"`
-	Username  string `mapstructure:"username"`
-	Subdomain string `mapstructure:"subdomain"`
+	Token     string `mapstructure:"token" json:"token"`
+	Username  string `mapstructure:"username" json:"username"`
+	Subdomain string `mapstructure:"subdomain" json:"subdomain"`
 }
 
 func NewClient(creds Creds, httpClient *http.Client) *Client {

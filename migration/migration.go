@@ -12,9 +12,9 @@ type Client struct {
 }
 
 type Agent struct {
-	Name      string `mapstructure:"name"`
-	ZendeskId int    `mapstructure:"zendeskUserId"`
-	CwId      int    `mapstructure:"connectwiseMemberId"`
+	Name      string `mapstructure:"name" json:"name"`
+	ZendeskId int    `mapstructure:"zendesk_user_id" json:"zendesk_user_id"`
+	CwId      int    `mapstructure:"connectwise_member_id" json:"connectwise_member_id"`
 }
 
 func NewClient(zendeskCreds zendesk.Creds, cwCreds cw.Creds) *Client {
