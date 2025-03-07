@@ -21,7 +21,7 @@ func setLogger(file *os.File) error {
 	}))
 
 	slog.SetDefault(logger)
-
+	slog.Debug("DEBUGGING ENABLED")
 	return nil
 }
 

@@ -8,6 +8,7 @@ import (
 	"github.com/dsrosen/zendesk-connectwise-migrator/zendesk"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"log/slog"
 	"os"
 	"strings"
 )
@@ -82,12 +83,14 @@ func initConfig() {
 }
 
 func setCfgDefaults() {
+	slog.Debug("setting config defaults")
 	viper.SetDefault("agentMappings", []migration.Agent{{}}) // prefill with empty agent
 	viper.SetDefault("zendesk", ZendeskConfig{})
 	viper.SetDefault("connectwise_psa", CwConfig{})
 }
 
 func validateConfig(cfg Config) error {
+	slog.Debug("validating config")
 	if err := validateRequiredValues(cfg); err != nil {
 		return err
 	}
@@ -100,6 +103,7 @@ func validateConfig(cfg Config) error {
 }
 
 func validateRequiredValues(cfg Config) error {
+	slog.Debug("validating required fields")
 	var missing []string
 
 	keysWithStrVal := []string{
@@ -124,6 +128,7 @@ func validateRequiredValues(cfg Config) error {
 	// if value is empty, add key to missing
 	for _, key := range keysWithStrVal {
 		if key == "" {
+			slog.Warn("missing required config value", "key", key)
 			missing = append(missing, key)
 		}
 	}
@@ -131,11 +136,13 @@ func validateRequiredValues(cfg Config) error {
 	// if value is 0, add key to missing
 	for _, key := range keysWithIntVal {
 		if key == 0 {
+			slog.Warn("missing required config value", "key", key)
 			missing = append(missing, fmt.Sprintf("%d", key))
 		}
 	}
 
 	if len(missing) > 0 {
+		slog.Error("missing required config values", "missing", missing)
 		return errors.New("missing 1 or more required config values")
 	}
 
@@ -143,6 +150,7 @@ func validateRequiredValues(cfg Config) error {
 }
 
 func validateAgentMappings(agents []migration.Agent) error {
+	slog.Debug("validating agent mappings")
 	missingAgent := false
 	for _, agent := range agents {
 		var missingAgentVals []string
@@ -159,6 +167,7 @@ func validateAgentMappings(agents []migration.Agent) error {
 		}
 
 		if len(missingAgentVals) > 0 {
+			slog.Warn("agent mapping is missing required fields", "missing", missingAgentVals)
 			fmt.Printf("\nAn agent mapping is missing: %s\n   current values:\n       name: %s\n       zendeskUserId: %d\n       connectwiseMemberId: %d\n",
 				strings.Join(missingAgentVals, ","), agent.Name, agent.ZendeskId, agent.CwId)
 
@@ -167,6 +176,7 @@ func validateAgentMappings(agents []migration.Agent) error {
 	}
 
 	if missingAgent {
+		slog.Error("agent mapping is missing required fields")
 		return errors.New("missing agent mapping")
 	}
 
