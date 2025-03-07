@@ -74,7 +74,7 @@ func (c *Client) ConstructInputTicket(ctx context.Context, ticketId int64) (*Inp
 
 	slog.Debug("constructed input ticket",
 		"subject", inputTicket.Subject,
-		"organization", inputTicket.Organization.Organization.Name,
+		"organization", inputTicket.Organization.Name,
 		"requesterName", inputTicket.Requester.User.Name, "requesterEmail", inputTicket.Requester.User.Email, "requesterId", inputTicket.Requester.User.Id,
 		"assigneeName", inputTicket.Assignee.User.Name, "assigneeEmail", inputTicket.Assignee.User.Email, "assigneeId", inputTicket.Assignee.User.Id,
 		"totalComments", len(inputTicket.Comments),

@@ -7,5 +7,5 @@ import (
 )
 
 func (c *Client) MatchZdOrgToCwCompany(ctx context.Context, org zendesk.Organization) (cw.Company, error) {
-	return c.CwClient.GetCompanyByName(ctx, org.Organization.Name)
+	return c.CwClient.GetCompanyByName(ctx, org.Name)
 }

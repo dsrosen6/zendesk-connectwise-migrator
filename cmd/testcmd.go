@@ -48,7 +48,7 @@ var inputCmd = &cobra.Command{
 		}
 
 		fmt.Println("Subject:", i.Subject)
-		fmt.Println("Organization:", i.Organization.Organization.Name)
+		fmt.Println("Organization:", i.Organization.Name)
 		fmt.Println("Requester:", i.Requester.User.Name)
 		fmt.Println("Assignee:", i.Assignee.User.Name)
 		fmt.Println("Total Comments:", len(i.Comments))
@@ -83,7 +83,7 @@ var getOrgsCmd = &cobra.Command{
 		slog.Debug("getOrgsCmd", "total_orgs", len(orgs))
 		fmt.Println("Orgs found:")
 		for _, o := range orgs {
-			fmt.Printf("   %s\n", o.Organization.Name)
+			fmt.Println("Name:", o.Name)
 		}
 
 		return nil

@@ -8,32 +8,30 @@ import (
 	"time"
 )
 
-type Organizations struct {
-	Organizations []Organization `json:"results"`
-}
 type Organization struct {
-	Organization struct {
-		Url                string      `json:"url"`
-		Id                 int64       `json:"id"`
-		Name               string      `json:"name"`
-		SharedTickets      bool        `json:"shared_tickets"`
-		SharedComments     bool        `json:"shared_comments"`
-		ExternalId         interface{} `json:"external_id"`
-		CreatedAt          time.Time   `json:"created_at"`
-		UpdatedAt          time.Time   `json:"updated_at"`
-		DomainNames        []string    `json:"domain_names"`
-		Details            string      `json:"details"`
-		Notes              string      `json:"notes"`
-		GroupId            interface{} `json:"group_id"`
-		Tags               []string    `json:"tags"`
-		OrganizationFields struct {
-		} `json:"organization_fields"`
-	} `json:"organization"`
+	Url                string      `json:"url"`
+	Id                 int64       `json:"id"`
+	Name               string      `json:"name"`
+	SharedTickets      bool        `json:"shared_tickets"`
+	SharedComments     bool        `json:"shared_comments"`
+	ExternalId         interface{} `json:"external_id"`
+	CreatedAt          time.Time   `json:"created_at"`
+	UpdatedAt          time.Time   `json:"updated_at"`
+	DomainNames        []string    `json:"domain_names"`
+	Details            string      `json:"details"`
+	Notes              string      `json:"notes"`
+	GroupId            interface{} `json:"group_id"`
+	Tags               []string    `json:"tags"`
+	OrganizationFields struct {
+	} `json:"organization_fields"`
 }
 
 func (c *Client) GetOrganizationsWithQuery(ctx context.Context, tags []string) ([]Organization, error) {
 	var q string
-	var r Organizations
+	var r struct {
+		Organizations []Organization `json:"results"`
+	}
+
 	var orgs []Organization
 
 	if len(tags) > 0 {
@@ -56,12 +54,14 @@ func (c *Client) GetOrganizationsWithQuery(ctx context.Context, tags []string) (
 }
 
 func (c *Client) GetOrganization(ctx context.Context, orgId int64) (Organization, error) {
-	url := fmt.Sprintf("%s/organizations/%d", c.baseUrl, orgId)
-	o := &Organization{}
+	u := fmt.Sprintf("%s/organizations/%d", c.baseUrl, orgId)
+	var r struct {
+		Organization Organization `json:"organization"`
+	}
 
-	if err := c.apiRequest(ctx, "GET", url, nil, &o); err != nil {
+	if err := c.apiRequest(ctx, "GET", u, nil, &r); err != nil {
 		return Organization{}, fmt.Errorf("an error occured getting the organization: %w", err)
 	}
 
-	return *o, nil
+	return r.Organization, nil
 }
