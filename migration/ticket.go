@@ -3,6 +3,7 @@ package migration
 import (
 	"context"
 	"fmt"
+	"github.com/dsrosen/zendesk-connectwise-migrator/cw"
 	"github.com/dsrosen/zendesk-connectwise-migrator/zendesk"
 	"log/slog"
 	"time"
@@ -105,4 +106,8 @@ func (c *Client) createCommentInput(ctx context.Context, comment zendesk.Comment
 		Public:    comment.Public,
 		CreatedAt: comment.CreatedAt,
 	}, nil
+}
+
+func (c *Client) CreateTicket(ctx context.Context, input InputTicket) (cw.Ticket, error) {
+	return cw.Ticket{}, nil // TODO: Stuff
 }

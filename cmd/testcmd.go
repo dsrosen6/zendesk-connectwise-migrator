@@ -80,7 +80,7 @@ var matchCompanyCmd = &cobra.Command{
 			return fmt.Errorf("an error occured constructing input ticket: %w", err)
 		}
 
-		m, err := client.MatchOrgToCompany(ctx, i.Organization)
+		m, err := client.MatchZdOrgToCwCompany(ctx, i.Organization)
 		if err != nil {
 			return fmt.Errorf("an error occured matching org to company: %w", err)
 		}
