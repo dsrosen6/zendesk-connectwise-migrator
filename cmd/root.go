@@ -33,13 +33,6 @@ func Execute() {
 	}
 }
 
-func init() {
-	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.zendesk-connectwise-migrator.yaml)")
-	rootCmd.PersistentFlags().BoolP("debug", "d", false, "enable debug logging")
-	rootCmd.AddCommand(testCmd)
-	cobra.OnInitialize(initConfig)
-}
-
 func preRun(cmd *cobra.Command, args []string) error {
 	ctx = context.Background()
 	home, err := os.UserHomeDir()
@@ -61,16 +54,18 @@ func preRun(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("setting logger: %w", err)
 	}
 
-	if err := viper.Unmarshal(&config); err != nil {
+	if err := viper.Unmarshal(&conf); err != nil {
 		slog.Error("unmarshaling config", "error", err)
 		return fmt.Errorf("unmarshaling config: %w", err)
 	}
 
-	if err := validateConfig(config); err != nil {
-		slog.Error("validating config", "error", err)
-		return fmt.Errorf("config validation: %w", err)
-	}
-
-	client = migration.NewClient(config.Zendesk.ApiCreds, config.CW.ApiCreds)
+	client = migration.NewClient(conf.Zendesk.ApiCreds, conf.CW.ApiCreds)
 	return nil
+}
+
+func init() {
+	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.zendesk-connectwise-migrator.yaml)")
+	rootCmd.PersistentFlags().BoolP("debug", "d", false, "enable debug logging")
+	rootCmd.AddCommand(testCmd)
+	cobra.OnInitialize(initConfig)
 }

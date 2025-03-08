@@ -15,20 +15,7 @@ var testConnectionCmd = &cobra.Command{
 	Use: "connection",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		slog.Info("running testConnectionCmd")
-
-		if err := client.ZendeskClient.TestConnection(ctx); err != nil {
-			slog.Error("testConnectionCmd", "action", "client.ZendeskClient.TestConnection", "error", err)
-			return fmt.Errorf("zendesk connection test failed: %w", err)
-		}
-		fmt.Println("Zendesk connection test successful")
-
-		if err := client.CwClient.TestConnection(ctx); err != nil {
-			slog.Error("testConnectionCmd", "action", "client.CwClient.TestConnection", "error", err)
-			return fmt.Errorf("connectwise connection test failed: %w", err)
-		}
-
-		fmt.Println("ConnectWise connection test successful")
-		return nil
+		return client.ConnectionTest(ctx)
 	},
 }
 

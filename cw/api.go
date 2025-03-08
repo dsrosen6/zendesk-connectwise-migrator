@@ -36,12 +36,12 @@ func NewClient(creds Creds, httpClient *http.Client) *Client {
 	}
 }
 
-func (c *Client) TestConnection(ctx context.Context) error {
+func (c *Client) ConnectionTest(ctx context.Context) error {
 	url := fmt.Sprintf("%s/company/companies?pageSize=1", baseUrl)
 	co := Companies{}
 
 	if err := c.apiRequest(ctx, "GET", url, nil, &co); err != nil {
-		return fmt.Errorf("an error occured testing the connection: %w", err)
+		return err
 	}
 
 	return nil
@@ -70,7 +70,7 @@ func (c *Client) apiRequest(ctx context.Context, method, url string, body io.Rea
 	}(res.Body)
 
 	if res.StatusCode != http.StatusOK && res.StatusCode != http.StatusCreated {
-		return fmt.Errorf("non-success status code: %d", res.StatusCode)
+		return fmt.Errorf("status code: %s", res.Status)
 	}
 
 	data, err := io.ReadAll(res.Body)
