@@ -2,3 +2,4 @@
 *.DS_Store
 **/*_test.go
 migrator_config.json
+.idea
