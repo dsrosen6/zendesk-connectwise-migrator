@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/charmbracelet/huh"
 	"github.com/dsrosen/zendesk-connectwise-migrator/cw"
-	"github.com/dsrosen/zendesk-connectwise-migrator/migration"
 	"github.com/dsrosen/zendesk-connectwise-migrator/zendesk"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -62,12 +61,7 @@ var configCmd = &cobra.Command{
 			return err
 		}
 
-		if testConn {
-			client = migration.NewClient(conf.Zendesk.ApiCreds, conf.CW.ApiCreds)
-			return client.ConnectionTest(ctx)
-		}
-
-		return nil
+		return client.ConnectionTest(ctx)
 	},
 }
 
@@ -173,38 +167,48 @@ func (cfg *cfg) interactiveForm() *huh.Form {
 			huh.NewInput().
 				Title("Zendesk Token").
 				Placeholder(cfg.Zendesk.ApiCreds.Token).
+				Validate(requiredInput).
 				Value(&cfg.Zendesk.ApiCreds.Token),
 			huh.NewInput().
 				Title("Zendesk Username").
 				Placeholder(cfg.Zendesk.ApiCreds.Username).
+				Validate(requiredInput).
 				Value(&cfg.Zendesk.ApiCreds.Username),
 			huh.NewInput().
 				Title("Zendesk Subdomain").
 				Placeholder(cfg.Zendesk.ApiCreds.Subdomain).
+				Validate(requiredInput).
 				Value(&cfg.Zendesk.ApiCreds.Subdomain),
 			huh.NewInput().
 				Title("ConnectWise Company ID").
 				Placeholder(cfg.Zendesk.FieldIds.PSACompanyId).
+				Validate(requiredInput).
 				Value(&cfg.CW.ApiCreds.CompanyId),
 			huh.NewInput().
 				Title("ConnectWise Public Key").
 				Placeholder(cfg.Zendesk.FieldIds.PSAContactId).
+				Validate(requiredInput).
 				Value(&cfg.CW.ApiCreds.PublicKey),
 			huh.NewInput().
 				Title("ConnectWise Private Key").
 				Placeholder(cfg.CW.ApiCreds.CompanyId).
+				Validate(requiredInput).
 				Value(&cfg.CW.ApiCreds.PrivateKey),
 			huh.NewInput().
 				Title("ConnectWise Client ID").
 				Placeholder(cfg.CW.ApiCreds.ClientId).
+				Validate(requiredInput).
 				Value(&cfg.CW.ApiCreds.ClientId),
 		),
-		huh.NewGroup(
-			huh.NewConfirm().
-				Title("Test API Connection?").
-				Value(&testConn),
-		),
 	).WithTheme(huh.ThemeBase())
+}
+
+// Validator for required huh Input fields
+func requiredInput(s string) error {
+	if s == "" {
+		return errors.New("field is required")
+	}
+	return nil
 }
 
 func setCfgDefaults() {
