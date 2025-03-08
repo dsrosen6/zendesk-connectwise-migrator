@@ -25,6 +25,36 @@ type Organization struct {
 	} `json:"organization_fields"`
 }
 
+type OrganizationFieldsResp struct {
+	OrganizationFields []OrganizationField `json:"organization_fields"`
+	Meta               struct {
+		HasMore      bool   `json:"has_more"`
+		AfterCursor  string `json:"after_cursor"`
+		BeforeCursor string `json:"before_cursor"`
+	} `json:"meta"`
+	Links struct {
+		Prev string `json:"prev"`
+		Next string `json:"next"`
+	} `json:"links"`
+}
+
+type OrganizationField struct {
+	Url                 string      `json:"url"`
+	Id                  int64       `json:"id"`
+	Type                string      `json:"type"`
+	Key                 string      `json:"key"`
+	Title               string      `json:"title"`
+	Description         string      `json:"description"`
+	RawTitle            string      `json:"raw_title"`
+	RawDescription      string      `json:"raw_description"`
+	Position            int         `json:"position"`
+	Active              bool        `json:"active"`
+	System              bool        `json:"system"`
+	RegexpForValidation interface{} `json:"regexp_for_validation"`
+	CreatedAt           time.Time   `json:"created_at"`
+	UpdatedAt           time.Time   `json:"updated_at"`
+}
+
 func (c *Client) GetOrganizationsWithQuery(ctx context.Context, tags []string) ([]Organization, error) {
 	var q string
 	var r struct {
@@ -62,4 +92,28 @@ func (c *Client) GetOrganization(ctx context.Context, orgId int64) (Organization
 	}
 
 	return r.Organization, nil
+}
+
+func (c *Client) GetOrgCustomFields(ctx context.Context) ([]OrganizationField, error) {
+	initialUrl := fmt.Sprintf("%s/organization_fields?page[size]=100", c.baseUrl)
+	allFields := &OrganizationFieldsResp{}
+	currentPage := &OrganizationFieldsResp{}
+
+	if err := c.apiRequest(ctx, "GET", initialUrl, nil, &currentPage); err != nil {
+		return nil, fmt.Errorf("an error occured getting the organization fields: %w", err)
+	}
+
+	allFields.OrganizationFields = append(allFields.OrganizationFields, currentPage.OrganizationFields...)
+
+	for currentPage.Meta.HasMore {
+		nextPage := &OrganizationFieldsResp{}
+		if err := c.apiRequest(ctx, "GET", currentPage.Links.Next, nil, &nextPage); err != nil {
+			return nil, fmt.Errorf("an error occured getting the organization fields: %w", err)
+		}
+
+		allFields.OrganizationFields = append(allFields.OrganizationFields, nextPage.OrganizationFields...)
+		currentPage = nextPage
+	}
+
+	return allFields.OrganizationFields, nil
 }
