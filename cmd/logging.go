@@ -6,10 +6,6 @@ import (
 	"os"
 )
 
-type FileHandler struct {
-	file *os.File
-}
-
 func setLogger(file *os.File) error {
 	level := slog.LevelInfo
 	if debug {

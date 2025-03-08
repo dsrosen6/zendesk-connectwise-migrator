@@ -3,7 +3,6 @@ package zendesk
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"net/url"
 	"time"
 )
@@ -42,7 +41,6 @@ func (c *Client) GetOrganizationsWithQuery(ctx context.Context, tags []string) (
 	}
 
 	q = url.QueryEscape(q)
-	slog.Debug("GetOrganizationsWithQuery:", "query", q)
 
 	if err := c.searchRequest(ctx, q, &r); err != nil {
 		return nil, fmt.Errorf("an error occured getting the organizations: %w", err)

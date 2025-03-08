@@ -16,21 +16,17 @@ var testConnectionCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		slog.Info("running testConnectionCmd")
 
-		slog.Debug("testing Zendesk connection")
 		if err := client.ZendeskClient.TestConnection(ctx); err != nil {
 			slog.Error("testConnectionCmd", "action", "client.ZendeskClient.TestConnection", "error", err)
 			return fmt.Errorf("zendesk connection test failed: %w", err)
 		}
-		slog.Info("successfully connected to Zendesk")
 		fmt.Println("Zendesk connection test successful")
 
-		slog.Debug("testing ConnectWise connection")
 		if err := client.CwClient.TestConnection(ctx); err != nil {
 			slog.Error("testConnectionCmd", "action", "client.CwClient.TestConnection", "error", err)
 			return fmt.Errorf("connectwise connection test failed: %w", err)
 		}
 
-		slog.Info("successfully connected to ConnectWise")
 		fmt.Println("ConnectWise connection test successful")
 		return nil
 	},
@@ -40,20 +36,17 @@ var inputCmd = &cobra.Command{
 	Use:     "input-ticket",
 	Aliases: []string{"i"},
 	RunE: func(cmd *cobra.Command, args []string) error {
-		slog.Info("running inputCmd", "args", args)
 		if len(args) != 1 {
 			slog.Error("inputCmd", "error", "expected exactly one argument (ticket ID)")
 			return fmt.Errorf("expected exactly one argument (ticket ID)")
 		}
 		ticketId := args[0]
-		slog.Debug("converting ticket ID to int", "ticket_id", ticketId)
-		ti, err := strconv.Atoi(args[0])
+		ti, err := strconv.Atoi(ticketId)
 		if err != nil {
 			slog.Error("inputCmd", "error", "expected exactly one argument (ticket ID)")
 			return fmt.Errorf("invalid ticket ID - must be an integer")
 		}
 
-		slog.Debug("constructing input ticket", "ticket_id", ti)
 		i, err := client.ConstructInputTicket(ctx, int64(ti))
 		if err != nil {
 			slog.Error("inputCmd", "action", "client.ConstructInputTicket", "error", err)
@@ -83,7 +76,6 @@ var getOrgsCmd = &cobra.Command{
 	Use:  "orgs",
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		slog.Info("running getOrgsCmd", "args", args)
 		tags := args
 		orgs, err := client.ZendeskClient.GetOrganizationsWithQuery(ctx, tags)
 		if err != nil {
@@ -92,7 +84,6 @@ var getOrgsCmd = &cobra.Command{
 		}
 
 		if len(orgs) == 0 {
-			slog.Debug("no orgs found")
 			fmt.Println("No organizations found")
 			return nil
 		}
@@ -102,7 +93,6 @@ var getOrgsCmd = &cobra.Command{
 			fmt.Println("Name:", o.Name)
 		}
 
-		slog.Info("getOrgsCmd", "action", "client.ZendeskClient.GetOrganizationsWithQuery", "total_orgs", len(orgs))
 		return nil
 	},
 }

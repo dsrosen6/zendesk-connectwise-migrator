@@ -61,7 +61,6 @@ func preRun(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("setting logger: %w", err)
 	}
 
-	slog.Info("starting migrator CLI pre-run processes")
 	if err := viper.Unmarshal(&config); err != nil {
 		slog.Error("unmarshaling config", "error", err)
 		return fmt.Errorf("unmarshaling config: %w", err)
@@ -71,7 +70,7 @@ func preRun(cmd *cobra.Command, args []string) error {
 		slog.Error("validating config", "error", err)
 		return fmt.Errorf("config validation: %w", err)
 	}
-	
+
 	client = migration.NewClient(config.Zendesk.ApiCreds, config.CW.ApiCreds)
 	return nil
 }

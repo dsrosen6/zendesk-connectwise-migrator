@@ -3,7 +3,6 @@ package migration
 import (
 	"github.com/dsrosen/zendesk-connectwise-migrator/cw"
 	"github.com/dsrosen/zendesk-connectwise-migrator/zendesk"
-	"log/slog"
 	"net/http"
 )
 
@@ -19,7 +18,6 @@ type Agent struct {
 }
 
 func NewClient(zendeskCreds zendesk.Creds, cwCreds cw.Creds) *Client {
-	slog.Debug("creating migration client")
 	httpClient := http.DefaultClient
 
 	return &Client{
