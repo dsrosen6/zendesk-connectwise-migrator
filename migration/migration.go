@@ -33,19 +33,19 @@ func (c *Client) ConnectionTest(ctx context.Context) error {
 	testFailed := false
 	if err := c.ZendeskClient.ConnectionTest(ctx); err != nil {
 		slog.Error("testConnectionCmd", "action", "client.ZendeskClient.TestConnection", "error", err)
-		fmt.Printf("Zendesk: Fail // %v\n", err)
+		fmt.Printf("✗ Zendesk // %v\n", err)
 		testFailed = true
 	} else {
-		fmt.Println("Zendesk: Success")
+		fmt.Println("✓ Zendesk")
 	}
 
 	if err := c.CwClient.ConnectionTest(ctx); err != nil {
 		slog.Error("testConnectionCmd", "action", "client.CwClient.TestConnection", "error", err)
-		fmt.Printf("ConnectWise: Fail // %v\n", err)
+		fmt.Printf("✗ ConnectWise // %v\n", err)
 		testFailed = true
 
 	} else {
-		fmt.Println("ConnectWise: Success")
+		fmt.Println("✓ ConnectWise")
 	}
 
 	if testFailed {

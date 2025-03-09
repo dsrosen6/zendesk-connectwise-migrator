@@ -59,7 +59,7 @@ func preRun(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("unmarshaling config: %w", err)
 	}
 
-	client = migration.NewClient(conf.Zendesk.ApiCreds, conf.CW.ApiCreds)
+	client = migration.NewClient(conf.Zendesk.Creds, conf.CW.Creds)
 	return nil
 }
 

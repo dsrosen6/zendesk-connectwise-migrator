@@ -5,11 +5,14 @@ import (
 	"fmt"
 	"github.com/charmbracelet/huh"
 	"github.com/dsrosen/zendesk-connectwise-migrator/cw"
+	"github.com/dsrosen/zendesk-connectwise-migrator/migration"
 	"github.com/dsrosen/zendesk-connectwise-migrator/zendesk"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"log/slog"
 	"os"
+	"strconv"
+	"strings"
 )
 
 const (
@@ -19,28 +22,28 @@ const (
 var (
 	cfgFile  string
 	conf     cfg
-	testConn bool
+	testConn = "Y"
 )
 
 type cfg struct {
 	//AgentMappings []migration.Agent `mapstructure:"agent_mappings" json:"agent_mappings"`
-	Zendesk zendeskCfg `mapstructure:"zendesk" json:"zendesk"`
-	CW      cwCfg      `mapstructure:"connectwise_psa" json:"connectwise_psa"`
+	Zendesk zdCfg `mapstructure:"zendesk" json:"zendesk"`
+	CW      cwCfg `mapstructure:"connectwise_psa" json:"connectwise_psa"`
 }
 
-type zendeskCfg struct {
-	ApiCreds zendesk.Creds `mapstructure:"api_creds" json:"api_creds"`
-	FieldIds fieldIds      `mapstructure:"field_ids" json:"field_ids"`
+type zdCfg struct {
+	Creds    zendesk.Creds `mapstructure:"api_creds" json:"api_creds"`
+	FieldIds zdFieldIds    `mapstructure:"field_ids" json:"field_ids"`
 }
 
-type fieldIds struct {
-	PSACompanyId string `mapstructure:"psa_company_id" json:"psa_company_id"`
-	PSAContactId string `mapstructure:"psa_contact_id" json:"psa_contact_id"`
-	PSATicketId  int    `mapstructure:"psa_ticket_id" json:"psa_ticket_id"`
+type zdFieldIds struct {
+	PSACompanyId int `mapstructure:"psa_company_id" json:"psa_company_id"`
+	PSAContactId int `mapstructure:"psa_contact_id" json:"psa_contact_id"`
+	PSATicketId  int `mapstructure:"psa_ticket_id" json:"psa_ticket_id"`
 }
 
 type cwCfg struct {
-	ApiCreds           cw.Creds `mapstructure:"api_creds" json:"api_creds"`
+	Creds              cw.Creds `mapstructure:"api_creds" json:"api_creds"`
 	ClosedStatusId     int      `mapstructure:"closed_status_id" json:"closed_status_id"`
 	OpenStatusId       int      `mapstructure:"open_status_id" json:"open_status_id"`
 	DestinationBoardId int      `mapstructure:"destination_board_id" json:"destination_board_id"`
@@ -50,7 +53,7 @@ var configCmd = &cobra.Command{
 	Use:     "config",
 	Aliases: []string{"cfg"},
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if err := conf.interactiveForm().Run(); err != nil {
+		if err := conf.credsForm().Run(); err != nil {
 			return err
 		}
 
@@ -61,7 +64,12 @@ var configCmd = &cobra.Command{
 			return err
 		}
 
-		return client.ConnectionTest(ctx)
+		client = migration.NewClient(conf.Zendesk.Creds, conf.CW.Creds)
+		if strings.ToLower(testConn) == "y" {
+			return client.ConnectionTest(ctx)
+		}
+
+		return nil
 	},
 }
 
@@ -92,8 +100,6 @@ func initConfig() {
 				fmt.Println("Error creating default config file:", err)
 				os.Exit(1)
 			}
-			//fmt.Println("cfg file created - location:", path)
-			//fmt.Println("Please fill in the necessary fields and run the program again.")
 		} else {
 			fmt.Println("Error reading config file:", err)
 			os.Exit(1)
@@ -119,25 +125,24 @@ func (cfg *cfg) validateRequiredValues() error {
 	var missing []string
 
 	keysWithStrVal := []string{
-		cfg.Zendesk.ApiCreds.Token,
-		cfg.Zendesk.ApiCreds.Username,
-		cfg.Zendesk.ApiCreds.Subdomain,
-		cfg.CW.ApiCreds.CompanyId,
-		cfg.CW.ApiCreds.PublicKey,
-		cfg.CW.ApiCreds.PrivateKey,
-		cfg.CW.ApiCreds.ClientId,
-		cfg.Zendesk.FieldIds.PSACompanyId,
-		cfg.Zendesk.FieldIds.PSAContactId,
+		cfg.Zendesk.Creds.Token,
+		cfg.Zendesk.Creds.Username,
+		cfg.Zendesk.Creds.Subdomain,
+		cfg.CW.Creds.CompanyId,
+		cfg.CW.Creds.PublicKey,
+		cfg.CW.Creds.PrivateKey,
+		cfg.CW.Creds.ClientId,
 	}
 
 	keysWithIntVal := []int{
 		cfg.CW.ClosedStatusId,
 		cfg.CW.OpenStatusId,
 		cfg.CW.DestinationBoardId,
+		cfg.Zendesk.FieldIds.PSACompanyId,
+		cfg.Zendesk.FieldIds.PSAContactId,
 		cfg.Zendesk.FieldIds.PSATicketId,
 	}
 
-	// if value is empty, add key to missing
 	for _, key := range keysWithStrVal {
 		if key == "" {
 			slog.Warn("missing required config value", "key", key)
@@ -145,7 +150,6 @@ func (cfg *cfg) validateRequiredValues() error {
 		}
 	}
 
-	// if value is 0, add key to missing
 	for _, key := range keysWithIntVal {
 		if key == 0 {
 			slog.Warn("missing required config value", "key", key)
@@ -161,46 +165,67 @@ func (cfg *cfg) validateRequiredValues() error {
 	return nil
 }
 
-func (cfg *cfg) interactiveForm() *huh.Form {
+func (cfg *cfg) credsForm() *huh.Form {
 	return huh.NewForm(
 		huh.NewGroup(
 			huh.NewInput().
-				Title("Zendesk Token").
-				Placeholder(cfg.Zendesk.ApiCreds.Token).
+				Title("ZD: Token").
+				Placeholder(cfg.Zendesk.Creds.Token).
 				Validate(requiredInput).
-				Value(&cfg.Zendesk.ApiCreds.Token),
+				Inline(true).
+				Value(&cfg.Zendesk.Creds.Token),
 			huh.NewInput().
-				Title("Zendesk Username").
-				Placeholder(cfg.Zendesk.ApiCreds.Username).
+				Title("ZD: Username").
+				Placeholder(cfg.Zendesk.Creds.Username).
 				Validate(requiredInput).
-				Value(&cfg.Zendesk.ApiCreds.Username),
+				Inline(true).
+				Value(&cfg.Zendesk.Creds.Username),
 			huh.NewInput().
-				Title("Zendesk Subdomain").
-				Placeholder(cfg.Zendesk.ApiCreds.Subdomain).
+				Title("ZD: Subdomain").
+				Placeholder(cfg.Zendesk.Creds.Subdomain).
 				Validate(requiredInput).
-				Value(&cfg.Zendesk.ApiCreds.Subdomain),
+				Inline(true).
+				Value(&cfg.Zendesk.Creds.Subdomain),
 			huh.NewInput().
-				Title("ConnectWise Company ID").
-				Placeholder(cfg.Zendesk.FieldIds.PSACompanyId).
+				Title("CW: Company ID").
+				Placeholder(cfg.CW.Creds.CompanyId).
 				Validate(requiredInput).
-				Value(&cfg.CW.ApiCreds.CompanyId),
+				Inline(true).
+				Value(&cfg.CW.Creds.CompanyId),
 			huh.NewInput().
-				Title("ConnectWise Public Key").
-				Placeholder(cfg.Zendesk.FieldIds.PSAContactId).
+				Title("CW: Public Key").
+				Placeholder(cfg.CW.Creds.PublicKey).
 				Validate(requiredInput).
-				Value(&cfg.CW.ApiCreds.PublicKey),
+				Inline(true).
+				Value(&cfg.CW.Creds.PublicKey),
 			huh.NewInput().
-				Title("ConnectWise Private Key").
-				Placeholder(cfg.CW.ApiCreds.CompanyId).
+				Title("CW: Private Key").
+				Placeholder(cfg.CW.Creds.CompanyId).
 				Validate(requiredInput).
-				Value(&cfg.CW.ApiCreds.PrivateKey),
+				Inline(true).
+				Value(&cfg.CW.Creds.PrivateKey),
 			huh.NewInput().
-				Title("ConnectWise Client ID").
-				Placeholder(cfg.CW.ApiCreds.ClientId).
+				Title("CW: Client ID").
+				Placeholder(cfg.CW.Creds.ClientId).
 				Validate(requiredInput).
-				Value(&cfg.CW.ApiCreds.ClientId),
+				Inline(true).
+				Value(&cfg.CW.Creds.ClientId),
+			huh.NewInput().
+				Title("Run connection test? (Y/n)").
+				Placeholder(testConn).
+				Inline(true).
+				Value(&testConn),
 		),
-	).WithTheme(huh.ThemeBase())
+	).WithTheme(huh.ThemeBase16())
+}
+
+func strToInt(s string) int {
+	i, err := strconv.Atoi(s)
+	if err != nil {
+		return 0
+	}
+
+	return i
 }
 
 // Validator for required huh Input fields
@@ -214,7 +239,7 @@ func requiredInput(s string) error {
 func setCfgDefaults() {
 	slog.Debug("setting config defaults")
 	//viper.SetDefault("agentMappings", []migration.Agent{{}}) // prefill with empty agent
-	viper.SetDefault("zendesk", zendeskCfg{})
+	viper.SetDefault("zendesk", zdCfg{})
 	viper.SetDefault("connectwise_psa", cwCfg{})
 }
 
