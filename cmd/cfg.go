@@ -167,56 +167,27 @@ func (cfg *cfg) validateRequiredValues() error {
 
 func (cfg *cfg) credsForm() *huh.Form {
 	return huh.NewForm(
-		huh.NewGroup(
-			huh.NewInput().
-				Title("ZD: Token").
-				Placeholder(cfg.Zendesk.Creds.Token).
-				Validate(requiredInput).
-				Inline(true).
-				Value(&cfg.Zendesk.Creds.Token),
-			huh.NewInput().
-				Title("ZD: Username").
-				Placeholder(cfg.Zendesk.Creds.Username).
-				Validate(requiredInput).
-				Inline(true).
-				Value(&cfg.Zendesk.Creds.Username),
-			huh.NewInput().
-				Title("ZD: Subdomain").
-				Placeholder(cfg.Zendesk.Creds.Subdomain).
-				Validate(requiredInput).
-				Inline(true).
-				Value(&cfg.Zendesk.Creds.Subdomain),
-			huh.NewInput().
-				Title("CW: Company ID").
-				Placeholder(cfg.CW.Creds.CompanyId).
-				Validate(requiredInput).
-				Inline(true).
-				Value(&cfg.CW.Creds.CompanyId),
-			huh.NewInput().
-				Title("CW: Public Key").
-				Placeholder(cfg.CW.Creds.PublicKey).
-				Validate(requiredInput).
-				Inline(true).
-				Value(&cfg.CW.Creds.PublicKey),
-			huh.NewInput().
-				Title("CW: Private Key").
-				Placeholder(cfg.CW.Creds.CompanyId).
-				Validate(requiredInput).
-				Inline(true).
-				Value(&cfg.CW.Creds.PrivateKey),
-			huh.NewInput().
-				Title("CW: Client ID").
-				Placeholder(cfg.CW.Creds.ClientId).
-				Validate(requiredInput).
-				Inline(true).
-				Value(&cfg.CW.Creds.ClientId),
-			huh.NewInput().
-				Title("Run connection test? (Y/n)").
-				Placeholder(testConn).
-				Inline(true).
-				Value(&testConn),
-		),
-	).WithTheme(huh.ThemeBase16())
+		inputGroup("Zendesk Token", cfg.Zendesk.Creds.Token, requiredInput, true),
+		inputGroup("Zendesk Username", cfg.Zendesk.Creds.Username, requiredInput, true),
+		inputGroup("Zendesk Subdomain", cfg.Zendesk.Creds.Subdomain, requiredInput, true),
+		inputGroup("ConnectWise Company ID", cfg.CW.Creds.CompanyId, requiredInput, true),
+		inputGroup("ConnectWise Public Key", cfg.CW.Creds.PublicKey, requiredInput, true),
+		inputGroup("ConnectWise Private Key", cfg.CW.Creds.PrivateKey, requiredInput, true),
+		inputGroup("ConnectWise Client ID", cfg.CW.Creds.ClientId, requiredInput, true),
+		inputGroup("Test connection? (Y/N)", testConn, requiredInput, true),
+	).WithHeight(3).WithShowHelp(false).WithTheme(huh.ThemeBase16())
+}
+
+// inputGroup creates a huh Group with an input field, this is just to make cfg.credsForm prettier.
+func inputGroup(title string, value string, validate func(string) error, inline bool) *huh.Group {
+	return huh.NewGroup(
+		huh.NewInput().
+			Title(title).
+			Placeholder(value).
+			Validate(validate).
+			Inline(inline).
+			Value(&value),
+	)
 }
 
 func strToInt(s string) int {
