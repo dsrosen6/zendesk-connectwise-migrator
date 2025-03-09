@@ -2,16 +2,17 @@ package migration
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"github.com/dsrosen/zendesk-connectwise-migrator/cw"
-	"github.com/dsrosen/zendesk-connectwise-migrator/zendesk"
+	"github.com/dsrosen/zendesk-connectwise-migrator/internal/psa"
+	"github.com/dsrosen/zendesk-connectwise-migrator/internal/zendesk"
 	"log/slog"
 	"net/http"
 )
 
 type Client struct {
 	ZendeskClient *zendesk.Client
-	CwClient      *cw.Client
+	CwClient      *psa.Client
 }
 
 type Agent struct {
@@ -20,12 +21,12 @@ type Agent struct {
 	CwId      int    `mapstructure:"connectwise_member_id" json:"connectwise_member_id"`
 }
 
-func NewClient(zendeskCreds zendesk.Creds, cwCreds cw.Creds) *Client {
+func NewClient(zendeskCreds zendesk.Creds, cwCreds psa.Creds) *Client {
 	httpClient := http.DefaultClient
 
 	return &Client{
 		ZendeskClient: zendesk.NewClient(zendeskCreds, httpClient),
-		CwClient:      cw.NewClient(cwCreds, httpClient),
+		CwClient:      psa.NewClient(cwCreds, httpClient),
 	}
 }
 
@@ -49,10 +50,10 @@ func (c *Client) ConnectionTest(ctx context.Context) error {
 	}
 
 	if testFailed {
-		fmt.Println("API Connection test failed - please review your config variables.")
-		return nil
+		slog.Error("connection test failed")
+		return errors.New("one or more API connections failed")
 	}
 
-	fmt.Println("API Connection test successful!")
+	fmt.Println("Connection test successful!")
 	return nil
 }

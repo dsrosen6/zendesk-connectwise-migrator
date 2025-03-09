@@ -4,15 +4,13 @@ import (
 	"errors"
 	"fmt"
 	"github.com/charmbracelet/huh"
-	"github.com/dsrosen/zendesk-connectwise-migrator/cw"
-	"github.com/dsrosen/zendesk-connectwise-migrator/migration"
-	"github.com/dsrosen/zendesk-connectwise-migrator/zendesk"
+	"github.com/dsrosen/zendesk-connectwise-migrator/internal/psa"
+	"github.com/dsrosen/zendesk-connectwise-migrator/internal/zendesk"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"log/slog"
 	"os"
 	"strconv"
-	"strings"
 )
 
 const (
@@ -20,13 +18,11 @@ const (
 )
 
 var (
-	cfgFile  string
-	conf     cfg
-	testConn = "Y"
+	cfgFile string
+	conf    cfg
 )
 
 type cfg struct {
-	//AgentMappings []migration.Agent `mapstructure:"agent_mappings" json:"agent_mappings"`
 	Zendesk zdCfg `mapstructure:"zendesk" json:"zendesk"`
 	CW      cwCfg `mapstructure:"connectwise_psa" json:"connectwise_psa"`
 }
@@ -43,34 +39,10 @@ type zdFieldIds struct {
 }
 
 type cwCfg struct {
-	Creds              cw.Creds `mapstructure:"api_creds" json:"api_creds"`
-	ClosedStatusId     int      `mapstructure:"closed_status_id" json:"closed_status_id"`
-	OpenStatusId       int      `mapstructure:"open_status_id" json:"open_status_id"`
-	DestinationBoardId int      `mapstructure:"destination_board_id" json:"destination_board_id"`
-}
-
-var configCmd = &cobra.Command{
-	Use:     "config",
-	Aliases: []string{"cfg"},
-	RunE: func(cmd *cobra.Command, args []string) error {
-		if err := conf.credsForm().Run(); err != nil {
-			return err
-		}
-
-		viper.Set("zendesk", conf.Zendesk)
-		viper.Set("connectwise_psa", conf.CW)
-
-		if err := viper.WriteConfig(); err != nil {
-			return err
-		}
-
-		client = migration.NewClient(conf.Zendesk.Creds, conf.CW.Creds)
-		if strings.ToLower(testConn) == "y" {
-			return client.ConnectionTest(ctx)
-		}
-
-		return nil
-	},
+	Creds              psa.Creds `mapstructure:"api_creds" json:"api_creds"`
+	ClosedStatusId     int       `mapstructure:"closed_status_id" json:"closed_status_id"`
+	OpenStatusId       int       `mapstructure:"open_status_id" json:"open_status_id"`
+	DestinationBoardId int       `mapstructure:"destination_board_id" json:"destination_board_id"`
 }
 
 // initConfig reads in config file and ENV variables if set.
@@ -108,52 +80,23 @@ func initConfig() {
 }
 
 func (cfg *cfg) validateConfig() error {
-	slog.Debug("validating config")
-	if err := cfg.validateRequiredValues(); err != nil {
-		return err
-	}
-
-	//if err := validateAgentMappings(cfg.AgentMappings); err != nil {
-	//	return err
-	//}
-
-	return nil
-}
-
-func (cfg *cfg) validateRequiredValues() error {
 	slog.Debug("validating required fields")
 	var missing []string
 
-	keysWithStrVal := []string{
-		cfg.Zendesk.Creds.Token,
-		cfg.Zendesk.Creds.Username,
-		cfg.Zendesk.Creds.Subdomain,
-		cfg.CW.Creds.CompanyId,
-		cfg.CW.Creds.PublicKey,
-		cfg.CW.Creds.PrivateKey,
-		cfg.CW.Creds.ClientId,
+	requiredFields := map[string]string{
+		"zendesk.api_creds.token":               cfg.Zendesk.Creds.Token,
+		"zendesk.api_creds.username":            cfg.Zendesk.Creds.Username,
+		"zendesk.api_creds.subdomain":           cfg.Zendesk.Creds.Subdomain,
+		"connectwise_psa.api_creds.company_id":  cfg.CW.Creds.CompanyId,
+		"connectwise_psa.api_creds.public_key":  cfg.CW.Creds.PublicKey,
+		"connectwise_psa.api_creds.private_key": cfg.CW.Creds.PrivateKey,
+		"connectwise_psa.api_creds.client_id":   cfg.CW.Creds.ClientId,
 	}
 
-	keysWithIntVal := []int{
-		cfg.CW.ClosedStatusId,
-		cfg.CW.OpenStatusId,
-		cfg.CW.DestinationBoardId,
-		cfg.Zendesk.FieldIds.PSACompanyId,
-		cfg.Zendesk.FieldIds.PSAContactId,
-		cfg.Zendesk.FieldIds.PSATicketId,
-	}
-
-	for _, key := range keysWithStrVal {
-		if key == "" {
-			slog.Warn("missing required config value", "key", key)
-			missing = append(missing, key)
-		}
-	}
-
-	for _, key := range keysWithIntVal {
-		if key == 0 {
-			slog.Warn("missing required config value", "key", key)
-			missing = append(missing, fmt.Sprintf("%d", key))
+	for k, v := range requiredFields {
+		if v == "" {
+			slog.Warn("missing required config value", "key", k)
+			missing = append(missing, k)
 		}
 	}
 
@@ -165,28 +108,42 @@ func (cfg *cfg) validateRequiredValues() error {
 	return nil
 }
 
+func (cfg *cfg) runCredsForm() error {
+	if err := conf.credsForm().Run(); err != nil {
+		return fmt.Errorf("running creds form: %w", err)
+	}
+	slog.Debug("creds form completed", "cfg", cfg)
+
+	viper.Set("zendesk", cfg.Zendesk)
+	viper.Set("connectwise_psa", cfg.CW)
+	if err := viper.WriteConfig(); err != nil {
+		return fmt.Errorf("writing config file: %w", err)
+	}
+
+	return nil
+}
+
 func (cfg *cfg) credsForm() *huh.Form {
 	return huh.NewForm(
-		inputGroup("Zendesk Token", cfg.Zendesk.Creds.Token, requiredInput, true),
-		inputGroup("Zendesk Username", cfg.Zendesk.Creds.Username, requiredInput, true),
-		inputGroup("Zendesk Subdomain", cfg.Zendesk.Creds.Subdomain, requiredInput, true),
-		inputGroup("ConnectWise Company ID", cfg.CW.Creds.CompanyId, requiredInput, true),
-		inputGroup("ConnectWise Public Key", cfg.CW.Creds.PublicKey, requiredInput, true),
-		inputGroup("ConnectWise Private Key", cfg.CW.Creds.PrivateKey, requiredInput, true),
-		inputGroup("ConnectWise Client ID", cfg.CW.Creds.ClientId, requiredInput, true),
-		inputGroup("Test connection? (Y/N)", testConn, requiredInput, true),
+		inputGroup("Zendesk Token", &cfg.Zendesk.Creds.Token, requiredInput, true),
+		inputGroup("Zendesk Username", &cfg.Zendesk.Creds.Username, requiredInput, true),
+		inputGroup("Zendesk Subdomain", &cfg.Zendesk.Creds.Subdomain, requiredInput, true),
+		inputGroup("ConnectWise Company ID", &cfg.CW.Creds.CompanyId, requiredInput, true),
+		inputGroup("ConnectWise Public Key", &cfg.CW.Creds.PublicKey, requiredInput, true),
+		inputGroup("ConnectWise Private Key", &cfg.CW.Creds.PrivateKey, requiredInput, true),
+		inputGroup("ConnectWise Client ID", &cfg.CW.Creds.ClientId, requiredInput, true),
 	).WithHeight(3).WithShowHelp(false).WithTheme(huh.ThemeBase16())
 }
 
 // inputGroup creates a huh Group with an input field, this is just to make cfg.credsForm prettier.
-func inputGroup(title string, value string, validate func(string) error, inline bool) *huh.Group {
+func inputGroup(title string, value *string, validate func(string) error, inline bool) *huh.Group {
 	return huh.NewGroup(
 		huh.NewInput().
 			Title(title).
-			Placeholder(value).
+			Placeholder(*value).
 			Validate(validate).
 			Inline(inline).
-			Value(&value),
+			Value(value),
 	)
 }
 
@@ -209,45 +166,6 @@ func requiredInput(s string) error {
 
 func setCfgDefaults() {
 	slog.Debug("setting config defaults")
-	//viper.SetDefault("agentMappings", []migration.Agent{{}}) // prefill with empty agent
 	viper.SetDefault("zendesk", zdCfg{})
 	viper.SetDefault("connectwise_psa", cwCfg{})
-}
-
-//func validateAgentMappings(agents []migration.Agent) error {
-//	slog.Debug("validating agent mappings")
-//	missingAgent := false
-//	for _, agent := range agents {
-//		var missingAgentVals []string
-//		if agent.Name == "" {
-//			missingAgentVals = append(missingAgentVals, "name")
-//		}
-//
-//		if agent.ZendeskId == 0 {
-//			missingAgentVals = append(missingAgentVals, "zendeskUserId")
-//		}
-//
-//		if agent.CwId == 0 {
-//			missingAgentVals = append(missingAgentVals, "connectwiseMemberId")
-//		}
-//
-//		if len(missingAgentVals) > 0 {
-//			slog.Warn("agent mapping is missing required fields", "missing", missingAgentVals)
-//			fmt.Printf("\nAn agent mapping is missing: %s\n   current values:\n       name: %s\n       zendeskUserId: %d\n       connectwiseMemberId: %d\n",
-//				strings.Join(missingAgentVals, ","), agent.Name, agent.ZendeskId, agent.CwId)
-//
-//			missingAgent = true
-//		}
-//	}
-//
-//	if missingAgent {
-//		slog.Error("agent mapping is missing required fields")
-//		return errors.New("missing agent mapping")
-//	}
-//
-//	return nil
-//}
-
-func init() {
-	rootCmd.AddCommand(configCmd)
 }
