@@ -23,34 +23,31 @@ type Ticket struct {
 				Rel interface{} `json:"rel"`
 			} `json:"source"`
 		} `json:"via"`
-		CreatedAt          time.Time     `json:"created_at"`
-		UpdatedAt          time.Time     `json:"updated_at"`
-		GeneratedTimestamp int           `json:"generated_timestamp"`
-		Type               string        `json:"type"`
-		Subject            string        `json:"subject"`
-		RawSubject         string        `json:"raw_subject"`
-		Description        string        `json:"description"`
-		Priority           string        `json:"priority"`
-		Status             string        `json:"status"`
-		Recipient          interface{}   `json:"recipient"`
-		RequesterId        int64         `json:"requester_id"`
-		SubmitterId        int64         `json:"submitter_id"`
-		AssigneeId         int64         `json:"assignee_id"`
-		OrganizationId     int64         `json:"organization_id"`
-		GroupId            int64         `json:"group_id"`
-		CollaboratorIds    []int64       `json:"collaborator_ids"`
-		FollowerIds        []interface{} `json:"follower_ids"`
-		EmailCcIds         []int64       `json:"email_cc_ids"`
-		ForumTopicId       interface{}   `json:"forum_topic_id"`
-		ProblemId          interface{}   `json:"problem_id"`
-		HasIncidents       bool          `json:"has_incidents"`
-		IsPublic           bool          `json:"is_public"`
-		DueAt              interface{}   `json:"due_at"`
-		Tags               []string      `json:"tags"`
-		CustomFields       []struct {
-			Id    int64   `json:"id"`
-			Value *string `json:"value"`
-		} `json:"custom_fields"`
+		CreatedAt          time.Time           `json:"created_at"`
+		UpdatedAt          time.Time           `json:"updated_at"`
+		GeneratedTimestamp int                 `json:"generated_timestamp"`
+		Type               string              `json:"type"`
+		Subject            string              `json:"subject"`
+		RawSubject         string              `json:"raw_subject"`
+		Description        string              `json:"description"`
+		Priority           string              `json:"priority"`
+		Status             string              `json:"status"`
+		Recipient          interface{}         `json:"recipient"`
+		RequesterId        int64               `json:"requester_id"`
+		SubmitterId        int64               `json:"submitter_id"`
+		AssigneeId         int64               `json:"assignee_id"`
+		OrganizationId     int64               `json:"organization_id"`
+		GroupId            int64               `json:"group_id"`
+		CollaboratorIds    []int64             `json:"collaborator_ids"`
+		FollowerIds        []interface{}       `json:"follower_ids"`
+		EmailCcIds         []int64             `json:"email_cc_ids"`
+		ForumTopicId       interface{}         `json:"forum_topic_id"`
+		ProblemId          interface{}         `json:"problem_id"`
+		HasIncidents       bool                `json:"has_incidents"`
+		IsPublic           bool                `json:"is_public"`
+		DueAt              interface{}         `json:"due_at"`
+		Tags               []string            `json:"tags"`
+		CustomFields       []TicketCustomField `json:"custom_fields"`
 		SatisfactionRating struct {
 			Score string `json:"score"`
 		} `json:"satisfaction_rating"`
@@ -67,6 +64,11 @@ type Ticket struct {
 		AllowAttachments     bool          `json:"allow_attachments"`
 		FromMessagingChannel bool          `json:"from_messaging_channel"`
 	} `json:"ticket"`
+}
+
+type TicketCustomField struct {
+	Id    int64   `json:"id"`
+	Value *string `json:"value"`
 }
 
 type TicketComments struct {

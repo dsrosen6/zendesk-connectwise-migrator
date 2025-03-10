@@ -11,12 +11,18 @@ import (
 )
 
 const (
-	ticketFieldTitle  = "PSA Ticket"
-	contactFieldTitle = "PSA Contact"
-	contactFieldKey   = "psa_contact"
-	companyFieldTitle = "PSA Company"
-	companyFieldKey   = "psa_company"
-	fieldDescription  = "Created by Zendesk to ConnectWise PSA Migration utility"
+	psaTicketFieldTitle  = "PSA Ticket"
+	psaContactFieldTitle = "PSA Contact"
+	psaContactFieldKey   = "psa_contact"
+	psaCompanyFieldTitle = "PSA Company"
+	psaCompanyFieldKey   = "psa_company"
+	psaFieldDescription  = "Created by Zendesk to ConnectWise PSA Migration utility"
+)
+
+var (
+	psaTicketFieldId  int64
+	psaContactFieldId int64
+	psaCompanyFieldId int64
 )
 
 type Client struct {
@@ -58,35 +64,38 @@ func (c *Client) ConnectionTest(ctx context.Context) error {
 }
 
 func (c *Client) CheckZendeskPSAFields(ctx context.Context) error {
-	tf, err := c.ZendeskClient.GetTicketFieldByTitle(ctx, ticketFieldTitle)
+	tf, err := c.ZendeskClient.GetTicketFieldByTitle(ctx, psaTicketFieldTitle)
 	if err != nil {
 		slog.Info("no psa_ticket field found in zendesk - creating")
-		tf, err = c.ZendeskClient.PostTicketField(ctx, "integer", ticketFieldTitle, fieldDescription)
+		tf, err = c.ZendeskClient.PostTicketField(ctx, "integer", psaTicketFieldTitle, psaFieldDescription)
 		if err != nil {
 			slog.Error("creating psa ticket field", "error", err)
 			return fmt.Errorf("creating psa ticket field: %w", err)
 		}
 	}
 
-	uf, err := c.ZendeskClient.GetUserFieldByKey(ctx, contactFieldKey)
+	uf, err := c.ZendeskClient.GetUserFieldByKey(ctx, psaContactFieldKey)
 	if err != nil {
 		slog.Info("no psa_contact field found in zendesk - creating")
-		uf, err = c.ZendeskClient.PostUserField(ctx, "integer", contactFieldKey, contactFieldTitle, fieldDescription)
+		uf, err = c.ZendeskClient.PostUserField(ctx, "integer", psaContactFieldKey, psaContactFieldTitle, psaFieldDescription)
 		if err != nil {
 			slog.Error("creating psa contact field", "error", err)
 			return fmt.Errorf("creating psa contact field: %w", err)
 		}
 	}
 
-	cf, err := c.ZendeskClient.GetOrgFieldByKey(ctx, companyFieldKey)
+	cf, err := c.ZendeskClient.GetOrgFieldByKey(ctx, psaCompanyFieldKey)
 	if err != nil {
 		slog.Info("no psa_company field found in zendesk - creating")
-		cf, err = c.ZendeskClient.PostOrgField(ctx, "integer", companyFieldKey, companyFieldTitle, fieldDescription)
+		cf, err = c.ZendeskClient.PostOrgField(ctx, "integer", psaCompanyFieldKey, psaCompanyFieldTitle, psaFieldDescription)
 		if err != nil {
 			slog.Error("creating psa company field", "error", err)
 			return fmt.Errorf("creating psa company field: %w", err)
 		}
 	}
-	slog.Debug("CheckZendeskPSAFields", "ticketField", tf, "userField", uf, "orgField", cf)
+	psaTicketFieldId = tf.Id
+	psaContactFieldId = uf.Id
+	psaCompanyFieldId = cf.Id
+	slog.Debug("CheckZendeskPSAFields", "ticketField", psaTicketFieldId, "userField", psaContactFieldId, "orgField", psaCompanyFieldId)
 	return nil
 }

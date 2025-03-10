@@ -9,21 +9,24 @@ import (
 )
 
 type Organization struct {
-	Url                string      `json:"url"`
-	Id                 int64       `json:"id"`
-	Name               string      `json:"name"`
-	SharedTickets      bool        `json:"shared_tickets"`
-	SharedComments     bool        `json:"shared_comments"`
-	ExternalId         interface{} `json:"external_id"`
-	CreatedAt          time.Time   `json:"created_at"`
-	UpdatedAt          time.Time   `json:"updated_at"`
-	DomainNames        []string    `json:"domain_names"`
-	Details            string      `json:"details"`
-	Notes              string      `json:"notes"`
-	GroupId            interface{} `json:"group_id"`
-	Tags               []string    `json:"tags"`
-	OrganizationFields struct {
-	} `json:"organization_fields"`
+	Url                string             `json:"url"`
+	Id                 int64              `json:"id"`
+	Name               string             `json:"name"`
+	SharedTickets      bool               `json:"shared_tickets"`
+	SharedComments     bool               `json:"shared_comments"`
+	ExternalId         interface{}        `json:"external_id"`
+	CreatedAt          time.Time          `json:"created_at"`
+	UpdatedAt          time.Time          `json:"updated_at"`
+	DomainNames        []string           `json:"domain_names"`
+	Details            string             `json:"details"`
+	Notes              string             `json:"notes"`
+	GroupId            interface{}        `json:"group_id"`
+	Tags               []string           `json:"tags"`
+	OrganizationFields OrganizationFields `json:"organization_fields"`
+}
+
+type OrganizationFields struct {
+	PSACompanyId int64 `json:"psa_company"`
 }
 
 func (c *Client) GetOrganizationsWithQuery(ctx context.Context, tags []string) ([]Organization, error) {
