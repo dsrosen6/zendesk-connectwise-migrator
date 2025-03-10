@@ -3,8 +3,10 @@ package migration
 import (
 	"context"
 	"fmt"
+	"github.com/charmbracelet/huh"
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/psa"
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/zendesk"
+	"github.com/spf13/viper"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -28,6 +30,24 @@ var (
 type Client struct {
 	ZendeskClient *zendesk.Client
 	CwClient      *psa.Client
+	Cfg           *Config
+}
+
+type Config struct {
+	Zendesk ZdCfg `mapstructure:"zendesk" json:"zendesk"`
+	CW      CwCfg `mapstructure:"connectwise_psa" json:"connectwise_psa"`
+}
+
+type ZdCfg struct {
+	Creds         zendesk.Creds `mapstructure:"api_creds" json:"api_creds"`
+	TagsToMigrate []string      `mapstructure:"tags_to_migrate" json:"tags_to_migrate"`
+}
+
+type CwCfg struct {
+	Creds              psa.Creds `mapstructure:"api_creds" json:"api_creds"`
+	ClosedStatusId     int       `mapstructure:"closed_status_id" json:"closed_status_id"`
+	OpenStatusId       int       `mapstructure:"open_status_id" json:"open_status_id"`
+	DestinationBoardId int       `mapstructure:"destination_board_id" json:"destination_board_id"`
 }
 
 type Agent struct {
@@ -97,5 +117,34 @@ func (c *Client) CheckZendeskPSAFields(ctx context.Context) error {
 	psaContactFieldId = uf.Id
 	psaCompanyFieldId = cf.Id
 	slog.Debug("CheckZendeskPSAFields", "ticketField", psaTicketFieldId, "userField", psaContactFieldId, "orgField", psaCompanyFieldId)
+	return nil
+}
+
+func (c *Client) ZendeskTagForm(ctx context.Context) error {
+	tags, err := c.ZendeskClient.GetTags(ctx)
+	if err != nil {
+		return fmt.Errorf("getting tags: %w", err)
+	}
+
+	var tagNames []string
+	for _, tag := range tags {
+		tagNames = append(tagNames, tag.Name)
+	}
+
+	var chosenTags []string
+	input := huh.NewMultiSelect[string]().
+		Title("Select Zendesk tags to migrate").
+		Options(huh.NewOptions(tagNames...)...).
+		Value(&chosenTags)
+
+	if err := input.WithTheme(huh.ThemeBase16()).Run(); err != nil {
+		return fmt.Errorf("running tag selection form: %w", err)
+	}
+
+	viper.Set("zendesk.tags_to_migrate", chosenTags)
+	if err := viper.WriteConfig(); err != nil {
+		return fmt.Errorf("writing config file: %w", err)
+	}
+
 	return nil
 }

@@ -28,14 +28,8 @@ type cfg struct {
 }
 
 type zdCfg struct {
-	Creds    zendesk.Creds `mapstructure:"api_creds" json:"api_creds"`
-	FieldIds zdFieldIds    `mapstructure:"field_ids" json:"field_ids"`
-}
-
-type zdFieldIds struct {
-	PSACompanyId int `mapstructure:"psa_company_id" json:"psa_company_id"`
-	PSAContactId int `mapstructure:"psa_contact_id" json:"psa_contact_id"`
-	PSATicketId  int `mapstructure:"psa_ticket_id" json:"psa_ticket_id"`
+	Creds         zendesk.Creds `mapstructure:"api_creds" json:"api_creds"`
+	TagsToMigrate []string      `mapstructure:"tags_to_migrate" json:"tags_to_migrate"`
 }
 
 type cwCfg struct {

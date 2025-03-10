@@ -73,12 +73,8 @@ type TicketCustomField struct {
 
 type TicketComments struct {
 	Comments []Comment `json:"comments"`
-	Meta     struct {
-		HasMore      bool   `json:"has_more"`
-		AfterCursor  string `json:"after_cursor"`
-		BeforeCursor string `json:"before_cursor"`
-	} `json:"meta"`
-	Links struct {
+	Meta     Meta      `json:"meta"`
+	Links    struct {
 		Prev string `json:"prev"`
 		Next string `json:"next"`
 	} `json:"links"`

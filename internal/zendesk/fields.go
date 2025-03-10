@@ -64,16 +64,6 @@ type OrganizationField struct {
 	Active      bool   `json:"active"`
 }
 
-type Meta struct {
-	HasMore      bool   `json:"has_more"`
-	AfterCursor  string `json:"after_cursor"`
-	BeforeCursor string `json:"before_cursor"`
-}
-type Links struct {
-	Prev string `json:"prev"`
-	Next string `json:"next"`
-}
-
 func (c *Client) PostTicketField(ctx context.Context, fieldType, title, description string) (*TicketField, error) {
 	slog.Debug("zendesk.Client.PostTicketField called", "fieldType", fieldType, "title", title, "description", description)
 	f := &PostTicketField{
