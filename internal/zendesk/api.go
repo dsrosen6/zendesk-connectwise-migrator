@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 )
 
@@ -54,6 +55,7 @@ func (c *Client) searchRequest(ctx context.Context, query string, target interfa
 }
 
 func (c *Client) apiRequest(ctx context.Context, method, url string, body io.Reader, target interface{}) error {
+	slog.Debug("sending zendesk api request", "method", method, "url", url, "body", body)
 	req, err := http.NewRequestWithContext(ctx, method, url, body)
 	if err != nil {
 		return fmt.Errorf("an error occured creating the request: %w", err)
@@ -75,6 +77,7 @@ func (c *Client) apiRequest(ctx context.Context, method, url string, body io.Rea
 	}(res.Body)
 
 	if res.StatusCode != http.StatusOK && res.StatusCode != http.StatusCreated {
+		slog.Error("zendesk api request failed", "status_code", res.StatusCode, "url", url, "body", body)
 		return fmt.Errorf("status code: %s", res.Status)
 	}
 

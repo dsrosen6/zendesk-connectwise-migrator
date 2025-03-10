@@ -1,9 +1,11 @@
 package zendesk
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
-	"time"
+	"log/slog"
 )
 
 type TicketFieldsResp struct {
@@ -24,99 +26,42 @@ type OrganizationFieldsResp struct {
 	Links              `json:"links"`
 }
 
+type PostTicketField struct {
+	TicketField TicketField `json:"ticket_field"`
+}
+
+type PostUserField struct {
+	UserField UserField `json:"user_field"`
+}
+
+type PostOrganizationField struct {
+	OrganizationField OrganizationField `json:"organization_field"`
+}
+
 type TicketField struct {
-	Url                 string      `json:"url"`
-	Id                  int64       `json:"id"`
-	Type                string      `json:"type"`
-	Title               string      `json:"title"`
-	RawTitle            string      `json:"raw_title"`
-	Description         string      `json:"description"`
-	RawDescription      string      `json:"raw_description"`
-	Position            int         `json:"position"`
-	Active              bool        `json:"active"`
-	Required            bool        `json:"required"`
-	CollapsedForAgents  bool        `json:"collapsed_for_agents"`
-	RegexpForValidation *string     `json:"regexp_for_validation"`
-	TitleInPortal       string      `json:"title_in_portal"`
-	RawTitleInPortal    string      `json:"raw_title_in_portal"`
-	VisibleInPortal     bool        `json:"visible_in_portal"`
-	EditableInPortal    bool        `json:"editable_in_portal"`
-	RequiredInPortal    bool        `json:"required_in_portal"`
-	AgentCanEdit        bool        `json:"agent_can_edit"`
-	Tag                 interface{} `json:"tag"`
-	CreatedAt           time.Time   `json:"created_at"`
-	UpdatedAt           time.Time   `json:"updated_at"`
-	Removable           bool        `json:"removable"`
-	Key                 interface{} `json:"key"`
-	AgentDescription    *string     `json:"agent_description"`
-	SystemFieldOptions  []struct {
-		Name  string `json:"name"`
-		Value string `json:"value"`
-	} `json:"system_field_options,omitempty"`
-	SubTypeId          int `json:"sub_type_id,omitempty"`
-	CustomFieldOptions []struct {
-		Id      int64  `json:"id"`
-		Name    string `json:"name"`
-		RawName string `json:"raw_name"`
-		Value   string `json:"value"`
-		Default bool   `json:"default"`
-	} `json:"custom_field_options,omitempty"`
-	CustomStatuses []struct {
-		Url                string    `json:"url"`
-		Id                 int64     `json:"id"`
-		StatusCategory     string    `json:"status_category"`
-		AgentLabel         string    `json:"agent_label"`
-		EndUserLabel       string    `json:"end_user_label"`
-		Description        string    `json:"description"`
-		EndUserDescription string    `json:"end_user_description"`
-		Active             bool      `json:"active"`
-		Default            bool      `json:"default"`
-		CreatedAt          time.Time `json:"created_at"`
-		UpdatedAt          time.Time `json:"updated_at"`
-	} `json:"custom_statuses,omitempty"`
+	Id               int64  `json:"id"`
+	Type             string `json:"type"`
+	Title            string `json:"title"`
+	AgentDescription string `json:"agent_description"`
+	Active           bool   `json:"active"`
 }
 
 type UserField struct {
-	Url                    string      `json:"url"`
-	Id                     int64       `json:"id"`
-	Type                   string      `json:"type"`
-	Key                    string      `json:"key"`
-	Title                  string      `json:"title"`
-	Description            string      `json:"description"`
-	RawTitle               string      `json:"raw_title"`
-	RawDescription         string      `json:"raw_description"`
-	Position               int         `json:"position"`
-	Active                 bool        `json:"active"`
-	System                 bool        `json:"system"`
-	RegexpForValidation    interface{} `json:"regexp_for_validation"`
-	CreatedAt              time.Time   `json:"created_at"`
-	UpdatedAt              time.Time   `json:"updated_at"`
-	RelationshipTargetType string      `json:"relationship_target_type,omitempty"`
-	RelationshipFilter     struct {
-		All []struct {
-			Field    string `json:"field"`
-			Operator string `json:"operator"`
-			Value    string `json:"value"`
-		} `json:"all"`
-		Any []interface{} `json:"any"`
-	} `json:"relationship_filter,omitempty"`
+	Id          int64  `json:"id"`
+	Type        string `json:"type"`
+	Key         string `json:"key"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Active      bool   `json:"active"`
 }
 
 type OrganizationField struct {
-	Url                 string      `json:"url"`
-	Id                  int64       `json:"id"`
-	Type                string      `json:"type"`
-	Key                 string      `json:"key"`
-	Title               string      `json:"title"`
-	Description         string      `json:"description"`
-	RawTitle            string      `json:"raw_title"`
-	RawDescription      string      `json:"raw_description"`
-	Position            int         `json:"position"`
-	Active              bool        `json:"active"`
-	System              bool        `json:"system"`
-	RegexpForValidation interface{} `json:"regexp_for_validation"`
-	CreatedAt           time.Time   `json:"created_at"`
-	UpdatedAt           time.Time   `json:"updated_at"`
+	Id          int64  `json:"id"`
+	Type        string `json:"type"`
+	Key         string `json:"key"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Active      bool   `json:"active"`
 }
 
 type Meta struct {
@@ -127,6 +72,48 @@ type Meta struct {
 type Links struct {
 	Prev string `json:"prev"`
 	Next string `json:"next"`
+}
+
+func (c *Client) PostTicketField(ctx context.Context, fieldType, title, description string) (*TicketField, error) {
+	f := &PostTicketField{
+		TicketField: TicketField{
+			Type:             fieldType,
+			Title:            title,
+			AgentDescription: description,
+			Active:           true,
+		},
+	}
+
+	fieldBytes, err := json.Marshal(f)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling ticket field to json: %w", err)
+	}
+	body := bytes.NewReader(fieldBytes)
+
+	u := fmt.Sprintf("%s/ticket_fields", c.baseUrl)
+	r := &PostTicketField{}
+
+	if err := c.apiRequest(ctx, "POST", u, body, r); err != nil {
+		return nil, err
+	}
+	slog.Info("PostTicketField", "response", r)
+
+	return &r.TicketField, nil
+}
+
+func (c *Client) GetTicketFieldByTitle(ctx context.Context, title string) (*TicketField, error) {
+	fields, err := c.GetTicketFields(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, field := range fields {
+		if field.Title == title {
+			return &field, nil
+		}
+	}
+
+	return nil, fmt.Errorf("ticket field with title %s not found", title)
 }
 
 func (c *Client) GetTicketFields(ctx context.Context) ([]TicketField, error) {
@@ -153,6 +140,49 @@ func (c *Client) GetTicketFields(ctx context.Context) ([]TicketField, error) {
 	return allFields.TicketFields, nil
 }
 
+func (c *Client) PostUserField(ctx context.Context, fieldType, key, title, description string) (*UserField, error) {
+	f := &PostUserField{
+		UserField: UserField{
+			Type:        fieldType,
+			Key:         key,
+			Title:       title,
+			Description: description,
+			Active:      true,
+		},
+	}
+
+	fieldBytes, err := json.Marshal(f)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling ticket field to json: %w", err)
+	}
+
+	body := bytes.NewReader(fieldBytes)
+
+	u := fmt.Sprintf("%s/user_fields", c.baseUrl)
+	r := &PostUserField{}
+
+	if err := c.apiRequest(ctx, "POST", u, body, r); err != nil {
+		return nil, err
+	}
+
+	return &r.UserField, nil
+}
+
+func (c *Client) GetUserFieldByKey(ctx context.Context, key string) (*UserField, error) {
+	fields, err := c.GetUserFields(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, field := range fields {
+		if field.Key == key {
+			return &field, nil
+		}
+	}
+
+	return nil, fmt.Errorf("user field with key %s not found", key)
+}
+
 func (c *Client) GetUserFields(ctx context.Context) ([]UserField, error) {
 	initialUrl := fmt.Sprintf("%s/user_fields?page[size]=100", c.baseUrl)
 	allFields := &UserFieldsResp{}
@@ -175,6 +205,49 @@ func (c *Client) GetUserFields(ctx context.Context) ([]UserField, error) {
 	}
 
 	return allFields.UserFields, nil
+}
+
+func (c *Client) PostOrgField(ctx context.Context, fieldType, key, title, description string) (*OrganizationField, error) {
+	f := &PostOrganizationField{
+		OrganizationField: OrganizationField{
+			Type:        fieldType,
+			Key:         key,
+			Title:       title,
+			Description: description,
+			Active:      true,
+		},
+	}
+
+	fieldBytes, err := json.Marshal(f)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling ticket field to json: %w", err)
+	}
+
+	body := bytes.NewReader(fieldBytes)
+
+	u := fmt.Sprintf("%s/organization_fields", c.baseUrl)
+	r := &PostOrganizationField{}
+
+	if err := c.apiRequest(ctx, "POST", u, body, r); err != nil {
+		return nil, err
+	}
+
+	return &r.OrganizationField, nil
+}
+
+func (c *Client) GetOrgFieldByKey(ctx context.Context, key string) (*OrganizationField, error) {
+	fields, err := c.GetOrgFields(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, field := range fields {
+		if field.Key == key {
+			return &field, nil
+		}
+	}
+
+	return nil, fmt.Errorf("ticket field with key %s not found", key)
 }
 
 func (c *Client) GetOrgFields(ctx context.Context) ([]OrganizationField, error) {

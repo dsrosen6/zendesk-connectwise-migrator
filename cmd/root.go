@@ -66,6 +66,9 @@ var rootCmd = &cobra.Command{
 			return fmt.Errorf("connection test: %w", err)
 		}
 
+		if err := client.CheckZendeskPSAFields(ctx); err != nil {
+			return fmt.Errorf("checking zendesk PSA fields: %w", err)
+		}
 		return nil
 	},
 }
