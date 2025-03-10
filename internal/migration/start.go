@@ -31,6 +31,7 @@ type Agent struct {
 }
 
 func NewClient(zendeskCreds zendesk.Creds, cwCreds psa.Creds) *Client {
+	slog.Debug("migration.NewClient called")
 	httpClient := http.DefaultClient
 
 	return &Client{
@@ -40,6 +41,7 @@ func NewClient(zendeskCreds zendesk.Creds, cwCreds psa.Creds) *Client {
 }
 
 func (c *Client) ConnectionTest(ctx context.Context) error {
+	slog.Debug("migration.Client.ConnectionTest called")
 	testFailed := false
 	if err := c.ZendeskClient.ConnectionTest(ctx); err != nil {
 		slog.Error("testConnectionCmd", "action", "client.ZendeskClient.TestConnection", "error", err)
@@ -68,11 +70,13 @@ func (c *Client) ConnectionTest(ctx context.Context) error {
 }
 
 func (c *Client) CheckZendeskPSAFields(ctx context.Context) error {
+	slog.Debug("migration.Client.CheckZendeskPSAFields called")
 	tf, err := c.ZendeskClient.GetTicketFieldByTitle(ctx, ticketFieldTitle)
 	if err != nil {
 		slog.Info("no psa_ticket field found in zendesk - creating")
 		tf, err = c.ZendeskClient.PostTicketField(ctx, "integer", ticketFieldTitle, fieldDescription)
 		if err != nil {
+			slog.Error("creating psa ticket field", "error", err)
 			return fmt.Errorf("creating psa ticket field: %w", err)
 		}
 	}
@@ -83,6 +87,7 @@ func (c *Client) CheckZendeskPSAFields(ctx context.Context) error {
 		slog.Info("no psa_contact field found in zendesk - creating")
 		uf, err = c.ZendeskClient.PostUserField(ctx, "integer", contactFieldKey, contactFieldTitle, fieldDescription)
 		if err != nil {
+			slog.Error("creating psa contact field", "error", err)
 			return fmt.Errorf("creating psa contact field: %w", err)
 		}
 	}
@@ -93,6 +98,7 @@ func (c *Client) CheckZendeskPSAFields(ctx context.Context) error {
 		slog.Info("no psa_company field found in zendesk - creating")
 		cf, err = c.ZendeskClient.PostOrgField(ctx, "integer", companyFieldKey, companyFieldTitle, fieldDescription)
 		if err != nil {
+			slog.Error("creating psa company field", "error", err)
 			return fmt.Errorf("creating psa company field: %w", err)
 		}
 	}

@@ -3,6 +3,7 @@ package zendesk
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 )
 
@@ -58,6 +59,7 @@ type User struct {
 }
 
 func (c *Client) GetUser(ctx context.Context, userId int64) (User, error) {
+	slog.Debug("zendesk.Client.GetUser called", "userId", userId)
 	url := fmt.Sprintf("%s/users/%d", c.baseUrl, userId)
 	u := &User{}
 

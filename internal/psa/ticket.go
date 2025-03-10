@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"time"
 )
 
@@ -242,6 +243,7 @@ type Ticket struct {
 }
 
 func (c *Client) GetTicket(ctx context.Context, ticketId int) (Ticket, error) {
+	slog.Debug("psa.GetTicket called")
 	url := fmt.Sprintf("%s/service/tickets/%d", baseUrl, ticketId)
 	t := &Ticket{}
 
@@ -253,6 +255,7 @@ func (c *Client) GetTicket(ctx context.Context, ticketId int) (Ticket, error) {
 }
 
 func (c *Client) PostTicket(ctx context.Context, ticket Ticket) (Ticket, error) {
+	slog.Debug("psa.PostTicket called")
 	url := fmt.Sprintf("%s/service/tickets", baseUrl)
 
 	ticketBytes, err := json.Marshal(ticket)

@@ -75,6 +75,7 @@ type Links struct {
 }
 
 func (c *Client) PostTicketField(ctx context.Context, fieldType, title, description string) (*TicketField, error) {
+	slog.Debug("zendesk.Client.PostTicketField called", "fieldType", fieldType, "title", title, "description", description)
 	f := &PostTicketField{
 		TicketField: TicketField{
 			Type:             fieldType,
@@ -96,12 +97,12 @@ func (c *Client) PostTicketField(ctx context.Context, fieldType, title, descript
 	if err := c.apiRequest(ctx, "POST", u, body, r); err != nil {
 		return nil, err
 	}
-	slog.Info("PostTicketField", "response", r)
 
 	return &r.TicketField, nil
 }
 
 func (c *Client) GetTicketFieldByTitle(ctx context.Context, title string) (*TicketField, error) {
+	slog.Debug("zendesk.Client.GetTicketFieldByTitle called", "title", title)
 	fields, err := c.GetTicketFields(ctx)
 	if err != nil {
 		return nil, err
@@ -117,6 +118,7 @@ func (c *Client) GetTicketFieldByTitle(ctx context.Context, title string) (*Tick
 }
 
 func (c *Client) GetTicketFields(ctx context.Context) ([]TicketField, error) {
+	slog.Debug("zendesk.Client.GetTicketFields called")
 	initialUrl := fmt.Sprintf("%s/ticket_fields?page[size]=100", c.baseUrl)
 	allFields := &TicketFieldsResp{}
 	currentPage := &TicketFieldsResp{}
@@ -141,6 +143,7 @@ func (c *Client) GetTicketFields(ctx context.Context) ([]TicketField, error) {
 }
 
 func (c *Client) PostUserField(ctx context.Context, fieldType, key, title, description string) (*UserField, error) {
+	slog.Debug("zendesk.Client.PostUserField called", "fieldType", fieldType, "key", key, "title", title, "description", description)
 	f := &PostUserField{
 		UserField: UserField{
 			Type:        fieldType,
@@ -169,6 +172,7 @@ func (c *Client) PostUserField(ctx context.Context, fieldType, key, title, descr
 }
 
 func (c *Client) GetUserFieldByKey(ctx context.Context, key string) (*UserField, error) {
+	slog.Debug("zendesk.Client.GetUserFieldByKey called", "key", key)
 	fields, err := c.GetUserFields(ctx)
 	if err != nil {
 		return nil, err
@@ -184,6 +188,7 @@ func (c *Client) GetUserFieldByKey(ctx context.Context, key string) (*UserField,
 }
 
 func (c *Client) GetUserFields(ctx context.Context) ([]UserField, error) {
+	slog.Debug("zendesk.Client.GetUserFields called")
 	initialUrl := fmt.Sprintf("%s/user_fields?page[size]=100", c.baseUrl)
 	allFields := &UserFieldsResp{}
 	currentPage := &UserFieldsResp{}
@@ -208,6 +213,7 @@ func (c *Client) GetUserFields(ctx context.Context) ([]UserField, error) {
 }
 
 func (c *Client) PostOrgField(ctx context.Context, fieldType, key, title, description string) (*OrganizationField, error) {
+	slog.Debug("zendesk.Client.PostOrgField called", "fieldType", fieldType, "key", key, "title", title, "description", description)
 	f := &PostOrganizationField{
 		OrganizationField: OrganizationField{
 			Type:        fieldType,
@@ -236,6 +242,7 @@ func (c *Client) PostOrgField(ctx context.Context, fieldType, key, title, descri
 }
 
 func (c *Client) GetOrgFieldByKey(ctx context.Context, key string) (*OrganizationField, error) {
+	slog.Debug("zendesk.Client.GetOrgFieldByKey called", "key", key)
 	fields, err := c.GetOrgFields(ctx)
 	if err != nil {
 		return nil, err
@@ -251,6 +258,7 @@ func (c *Client) GetOrgFieldByKey(ctx context.Context, key string) (*Organizatio
 }
 
 func (c *Client) GetOrgFields(ctx context.Context) ([]OrganizationField, error) {
+	slog.Debug("zendesk.Client.GetOrgFields called")
 	initialUrl := fmt.Sprintf("%s/organization_fields?page[size]=100", c.baseUrl)
 	allFields := &OrganizationFieldsResp{}
 	currentPage := &OrganizationFieldsResp{}

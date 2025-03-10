@@ -3,6 +3,7 @@ package psa
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"time"
 )
@@ -137,6 +138,7 @@ type Company struct {
 }
 
 func (c *Client) GetCompanyByName(ctx context.Context, name string) (Company, error) {
+	slog.Debug("psa.GetCompanyByName called")
 	query := url.QueryEscape(fmt.Sprintf("name=\"%s\"", name))
 	u := fmt.Sprintf("%s/company/companies?conditions=%s", baseUrl, query)
 	co := Companies{}

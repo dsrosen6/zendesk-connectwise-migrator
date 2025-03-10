@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"log/slog"
 	"time"
 )
 
@@ -128,6 +129,7 @@ type Comment struct {
 }
 
 func (c *Client) GetTicket(ctx context.Context, ticketId int64) (Ticket, error) {
+	slog.Debug("zendesk.Client.GetTicket called", "ticketId", ticketId)
 	url := fmt.Sprintf("%s/tickets/%d", c.baseUrl, ticketId)
 	t := &Ticket{}
 
@@ -139,6 +141,7 @@ func (c *Client) GetTicket(ctx context.Context, ticketId int64) (Ticket, error) 
 }
 
 func (c *Client) GetAllTicketComments(ctx context.Context, ticketId int64) (TicketComments, error) {
+	slog.Debug("zendesk.Client.GetAllTicketComments called", "ticketId", ticketId)
 	initialUrl := fmt.Sprintf("%s/tickets/%d/comments.json?page[size]=100", c.baseUrl, ticketId)
 	allComments := &TicketComments{}
 	currentPage := &TicketComments{}
@@ -162,5 +165,6 @@ func (c *Client) GetAllTicketComments(ctx context.Context, ticketId int64) (Tick
 
 	}
 
+	slog.Debug("returning comments", "totalComments", len(allComments.Comments))
 	return *allComments, nil
 }

@@ -26,6 +26,7 @@ type Creds struct {
 }
 
 func NewClient(creds Creds, httpClient *http.Client) *Client {
+	slog.Debug("zendesk.NewClient called")
 	creds.Username = fmt.Sprintf("%s/token", creds.Username)
 	return &Client{
 		creds:      creds,
@@ -35,6 +36,7 @@ func NewClient(creds Creds, httpClient *http.Client) *Client {
 }
 
 func (c *Client) ConnectionTest(ctx context.Context) error {
+	slog.Debug("zendesk.Client.ConnectionTest called")
 	url := fmt.Sprintf("%s/users?page[size]=1", c.baseUrl)
 
 	u := &Users{}
@@ -46,6 +48,7 @@ func (c *Client) ConnectionTest(ctx context.Context) error {
 }
 
 func (c *Client) searchRequest(ctx context.Context, query string, target interface{}) error {
+	slog.Debug("zendesk.Client.searchRequest called", "query", query)
 	u := fmt.Sprintf("%s/search.json?query=%s", c.baseUrl, query)
 	if err := c.apiRequest(ctx, "GET", u, nil, target); err != nil {
 		return fmt.Errorf("an error occured searching for the resource: %w", err)
@@ -55,7 +58,7 @@ func (c *Client) searchRequest(ctx context.Context, query string, target interfa
 }
 
 func (c *Client) apiRequest(ctx context.Context, method, url string, body io.Reader, target interface{}) error {
-	slog.Debug("sending zendesk api request", "method", method, "url", url, "body", body)
+	slog.Debug("zendesk.Client.apiRequest called", "method", method, "url", url)
 	req, err := http.NewRequestWithContext(ctx, method, url, body)
 	if err != nil {
 		return fmt.Errorf("an error occured creating the request: %w", err)
@@ -77,7 +80,7 @@ func (c *Client) apiRequest(ctx context.Context, method, url string, body io.Rea
 	}(res.Body)
 
 	if res.StatusCode != http.StatusOK && res.StatusCode != http.StatusCreated {
-		slog.Error("zendesk api request failed", "status_code", res.StatusCode, "url", url, "body", body)
+		slog.Warn("zendesk api request failed", "status_code", res.StatusCode, "url", url, "body", body)
 		return fmt.Errorf("status code: %s", res.Status)
 	}
 

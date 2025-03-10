@@ -3,6 +3,7 @@ package zendesk
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"time"
 )
@@ -26,6 +27,7 @@ type Organization struct {
 }
 
 func (c *Client) GetOrganizationsWithQuery(ctx context.Context, tags []string) ([]Organization, error) {
+	slog.Debug("zendesk.Client.GetOrganizationsWithQuery called", "tags", tags)
 	var q string
 	var r struct {
 		Organizations []Organization `json:"results"`
@@ -52,6 +54,7 @@ func (c *Client) GetOrganizationsWithQuery(ctx context.Context, tags []string) (
 }
 
 func (c *Client) GetOrganization(ctx context.Context, orgId int64) (Organization, error) {
+	slog.Debug("zendesk.Client.GetOrganization called", "orgId", orgId)
 	u := fmt.Sprintf("%s/organizations/%d", c.baseUrl, orgId)
 	var r struct {
 		Organization Organization `json:"organization"`

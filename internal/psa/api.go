@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 )
 
@@ -27,6 +28,7 @@ type Creds struct {
 }
 
 func NewClient(creds Creds, httpClient *http.Client) *Client {
+	slog.Debug("psa.NewClient called")
 	username := fmt.Sprintf("%s+%s", creds.CompanyId, creds.PublicKey)
 
 	return &Client{
@@ -37,6 +39,7 @@ func NewClient(creds Creds, httpClient *http.Client) *Client {
 }
 
 func (c *Client) ConnectionTest(ctx context.Context) error {
+	slog.Debug("psa.ConnectionTest called")
 	url := fmt.Sprintf("%s/company/companies?pageSize=1", baseUrl)
 	co := Companies{}
 
@@ -48,6 +51,7 @@ func (c *Client) ConnectionTest(ctx context.Context) error {
 }
 
 func (c *Client) apiRequest(ctx context.Context, method, url string, body io.Reader, target interface{}) error {
+	slog.Debug("psa.GetCompanyByName called")
 	req, err := http.NewRequestWithContext(ctx, method, url, body)
 	if err != nil {
 		return err

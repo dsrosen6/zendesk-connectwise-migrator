@@ -69,6 +69,7 @@ func initConfig() {
 			path := home + configFileSubPath
 			fmt.Println("Creating default config file")
 			if err := viper.WriteConfigAs(path); err != nil {
+				slog.Error("error creating default config file", "error", err)
 				fmt.Println("Error creating default config file:", err)
 				os.Exit(1)
 			}
@@ -110,6 +111,7 @@ func (cfg *cfg) validateConfig() error {
 
 func (cfg *cfg) runCredsForm() error {
 	if err := conf.credsForm().Run(); err != nil {
+		slog.Error("error running creds form", "error", err)
 		return fmt.Errorf("running creds form: %w", err)
 	}
 	slog.Debug("creds form completed", "cfg", cfg)
@@ -117,6 +119,7 @@ func (cfg *cfg) runCredsForm() error {
 	viper.Set("zendesk", cfg.Zendesk)
 	viper.Set("connectwise_psa", cfg.CW)
 	if err := viper.WriteConfig(); err != nil {
+		slog.Error("error writing config file", "error", err)
 		return fmt.Errorf("writing config file: %w", err)
 	}
 
@@ -150,6 +153,7 @@ func inputGroup(title string, value *string, validate func(string) error, inline
 func strToInt(s string) int {
 	i, err := strconv.Atoi(s)
 	if err != nil {
+		slog.Error("error converting string to int", "error", err)
 		return 0
 	}
 
