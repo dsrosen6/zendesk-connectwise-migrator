@@ -129,7 +129,6 @@ type Comment struct {
 }
 
 func (c *Client) GetTicket(ctx context.Context, ticketId int64) (Ticket, error) {
-	slog.Debug("zendesk.Client.GetTicket called", "ticketId", ticketId)
 	url := fmt.Sprintf("%s/tickets/%d", c.baseUrl, ticketId)
 	t := &Ticket{}
 

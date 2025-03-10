@@ -2,12 +2,12 @@ package migration
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/psa"
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/zendesk"
 	"log/slog"
 	"net/http"
+	"strings"
 )
 
 const (
@@ -31,7 +31,6 @@ type Agent struct {
 }
 
 func NewClient(zendeskCreds zendesk.Creds, cwCreds psa.Creds) *Client {
-	slog.Debug("migration.NewClient called")
 	httpClient := http.DefaultClient
 
 	return &Client{
@@ -41,36 +40,24 @@ func NewClient(zendeskCreds zendesk.Creds, cwCreds psa.Creds) *Client {
 }
 
 func (c *Client) ConnectionTest(ctx context.Context) error {
-	slog.Debug("migration.Client.ConnectionTest called")
-	testFailed := false
+	var failedTests []string
 	if err := c.ZendeskClient.ConnectionTest(ctx); err != nil {
-		slog.Error("testConnectionCmd", "action", "client.ZendeskClient.TestConnection", "error", err)
-		fmt.Printf("✗ Zendesk // %v\n", err)
-		testFailed = true
-	} else {
-		fmt.Println("✓ Zendesk")
+		failedTests = append(failedTests, "zendesk")
 	}
 
 	if err := c.CwClient.ConnectionTest(ctx); err != nil {
-		slog.Error("testConnectionCmd", "action", "client.CwClient.TestConnection", "error", err)
-		fmt.Printf("✗ ConnectWise // %v\n", err)
-		testFailed = true
-
-	} else {
-		fmt.Println("✓ ConnectWise")
+		failedTests = append(failedTests, "connectwise")
 	}
 
-	if testFailed {
-		slog.Error("connection test failed")
-		return errors.New("one or more API connections failed")
+	if len(failedTests) > 0 {
+		slog.Error("ConnectionTest: error", "failedTests", failedTests)
+		return fmt.Errorf("failed connection tests: %v", strings.Join(failedTests, ","))
 	}
 
-	fmt.Println("Connection test successful!")
 	return nil
 }
 
 func (c *Client) CheckZendeskPSAFields(ctx context.Context) error {
-	slog.Debug("migration.Client.CheckZendeskPSAFields called")
 	tf, err := c.ZendeskClient.GetTicketFieldByTitle(ctx, ticketFieldTitle)
 	if err != nil {
 		slog.Info("no psa_ticket field found in zendesk - creating")
@@ -80,7 +67,6 @@ func (c *Client) CheckZendeskPSAFields(ctx context.Context) error {
 			return fmt.Errorf("creating psa ticket field: %w", err)
 		}
 	}
-	slog.Info("psa ticket field", "id", tf.Id)
 
 	uf, err := c.ZendeskClient.GetUserFieldByKey(ctx, contactFieldKey)
 	if err != nil {
@@ -91,7 +77,6 @@ func (c *Client) CheckZendeskPSAFields(ctx context.Context) error {
 			return fmt.Errorf("creating psa contact field: %w", err)
 		}
 	}
-	slog.Info("psa contact field", "id", uf.Id)
 
 	cf, err := c.ZendeskClient.GetOrgFieldByKey(ctx, companyFieldKey)
 	if err != nil {
@@ -102,11 +87,6 @@ func (c *Client) CheckZendeskPSAFields(ctx context.Context) error {
 			return fmt.Errorf("creating psa company field: %w", err)
 		}
 	}
-	slog.Info("psa company field", "id", cf.Id)
-
-	fmt.Println("PSA Ticket Field ID:", tf.Id)
-	fmt.Println("PSA Contact Field ID:", uf.Id)
-	fmt.Println("PSA Contact Field ID:", cf.Id)
-
+	slog.Debug("CheckZendeskPSAFields", "ticketField", tf, "userField", uf, "orgField", cf)
 	return nil
 }

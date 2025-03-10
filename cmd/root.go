@@ -47,30 +47,34 @@ var rootCmd = &cobra.Command{
 			return fmt.Errorf("unmarshaling config: %w", err)
 		}
 
-		return nil
-	},
-	RunE: func(cmd *cobra.Command, args []string) error {
-		if len(args) > 0 && args[0] == "config" {
-			return conf.runCredsForm()
-		}
-
 		if err := conf.validateConfig(); err != nil {
 			if err := conf.runCredsForm(); err != nil {
 				return fmt.Errorf("validating config: %w", err)
 			}
 		}
+		slog.Info("Config Validated")
 
 		client = migration.NewClient(conf.Zendesk.Creds, conf.CW.Creds)
 
 		if err := client.ConnectionTest(ctx); err != nil {
 			return fmt.Errorf("connection test: %w", err)
 		}
+		slog.Info("Connection Test Successful")
 
 		if err := client.CheckZendeskPSAFields(ctx); err != nil {
 			return fmt.Errorf("checking zendesk PSA fields: %w", err)
 		}
+		slog.Info("Zendesk PSA Fields Verified")
+
 		return nil
 	},
+	//RunE: func(cmd *cobra.Command, args []string) error {
+	//	if len(args) > 0 && args[0] == "config" {
+	//		return conf.runCredsForm()
+	//	}
+	//
+	//
+	//},
 }
 
 func Execute() {

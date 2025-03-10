@@ -1,7 +1,9 @@
 package zendesk
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"time"
@@ -13,7 +15,7 @@ type Users struct {
 
 type User struct {
 	User struct {
-		Id                   int64         `json:"id"`
+		Id                   int           `json:"id"`
 		Url                  string        `json:"url"`
 		Name                 string        `json:"name"`
 		Email                string        `json:"email"`
@@ -49,15 +51,31 @@ type User struct {
 		Suspended            bool          `json:"suspended"`
 		DefaultGroupId       interface{}   `json:"default_group_id"`
 		ReportCsv            bool          `json:"report_csv"`
-		UserFields           struct {
-			AddigyAgentid         interface{} `json:"addigy_agentid"`
-			AddigyDeviceModelName interface{} `json:"addigy_device_model_name"`
-			AddigyDeviceName      interface{} `json:"addigy_device_name"`
-			AddigySerialNumber    interface{} `json:"addigy_serial_number"`
-		} `json:"user_fields"`
+		UserFields           UserFields    `json:"user_fields"`
 	} `json:"user"`
 }
 
+type UserFields struct {
+	PSAContactId int `json:"psa_contact"`
+}
+
+func (c *Client) UpdateUser(ctx context.Context, user *User) error {
+	slog.Debug("UpdateUser called")
+	url := fmt.Sprintf("%s/users/%d", c.baseUrl, user.User.Id)
+
+	jsonBytes, err := json.Marshal(user)
+	if err != nil {
+		return fmt.Errorf("marshaling user to json: %w", err)
+	}
+
+	body := bytes.NewReader(jsonBytes)
+
+	if err := c.apiRequest(ctx, "PUT", url, body, nil); err != nil {
+		return fmt.Errorf("an error occured updating the user: %w", err)
+	}
+
+	return nil
+}
 func (c *Client) GetUser(ctx context.Context, userId int64) (User, error) {
 	slog.Debug("zendesk.Client.GetUser called", "userId", userId)
 	url := fmt.Sprintf("%s/users/%d", c.baseUrl, userId)

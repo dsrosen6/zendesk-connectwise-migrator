@@ -89,8 +89,10 @@ func (c *Client) apiRequest(ctx context.Context, method, url string, body io.Rea
 		return fmt.Errorf("an error occured reading the response body: %w", err)
 	}
 
-	if err := json.Unmarshal(data, target); err != nil {
-		return fmt.Errorf("an error occured unmarshaling the response to JSON: %w", err)
+	if target != nil {
+		if err := json.Unmarshal(data, target); err != nil {
+			return fmt.Errorf("an error occured unmarshaling the response to JSON: %w", err)
+		}
 	}
 
 	return nil
