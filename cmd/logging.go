@@ -6,7 +6,7 @@ import (
 	"os"
 )
 
-func setLogger(file *os.File) error {
+func SetLogger(file *os.File) error {
 	level := slog.LevelInfo
 	if debug {
 		level = slog.LevelDebug
@@ -21,7 +21,7 @@ func setLogger(file *os.File) error {
 	return nil
 }
 
-func openLogFile(filePath string) (*os.File, error) {
+func OpenLogFile(filePath string) (*os.File, error) {
 	file, err := os.OpenFile(filePath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0666)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open log file: %w", err)

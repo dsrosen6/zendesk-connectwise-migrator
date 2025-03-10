@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/migration"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
-	"log/slog"
 	"os"
 	"path/filepath"
 )
@@ -28,7 +26,7 @@ var rootCmd = &cobra.Command{
 			return fmt.Errorf("getting home directory: %w", err)
 		}
 
-		file, err := openLogFile(filepath.Join(home, "migrator.log"))
+		file, err := OpenLogFile(filepath.Join(home, "migrator.log"))
 		if err != nil {
 			return fmt.Errorf("opening log file: %w", err)
 		}
@@ -38,43 +36,14 @@ var rootCmd = &cobra.Command{
 			return fmt.Errorf("getting debug flag: %w", err)
 		}
 
-		if err := setLogger(file); err != nil {
+		if err := SetLogger(file); err != nil {
 			return fmt.Errorf("setting logger: %w", err)
 		}
-
-		if err := viper.Unmarshal(&conf); err != nil {
-			slog.Error("unmarshaling config", "error", err)
-			return fmt.Errorf("unmarshaling config: %w", err)
-		}
-
-		if err := conf.validateConfig(); err != nil {
-			if err := conf.runCredsForm(); err != nil {
-				return fmt.Errorf("validating config: %w", err)
-			}
-		}
-		slog.Info("Config Validated")
-
-		client = migration.NewClient(conf.Zendesk.Creds, conf.CW.Creds)
-
-		if err := client.ConnectionTest(ctx); err != nil {
-			return fmt.Errorf("connection test: %w", err)
-		}
-		slog.Info("Connection Test Successful")
-
-		if err := client.CheckZendeskPSAFields(ctx); err != nil {
-			return fmt.Errorf("checking zendesk PSA fields: %w", err)
-		}
-		slog.Info("Zendesk PSA Fields Verified")
-
 		return nil
 	},
-	//RunE: func(cmd *cobra.Command, args []string) error {
-	//	if len(args) > 0 && args[0] == "config" {
-	//		return conf.runCredsForm()
-	//	}
-	//
-	//
-	//},
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return migration.Run(ctx)
+	},
 }
 
 func Execute() {
@@ -87,5 +56,4 @@ func Execute() {
 func init() {
 	rootCmd.PersistentFlags().BoolP("debug", "d", false, "enable debug logging")
 	rootCmd.AddCommand(testCmd)
-	cobra.OnInitialize(initConfig)
 }
