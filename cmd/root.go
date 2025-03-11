@@ -10,9 +10,8 @@ import (
 )
 
 var (
-	ctx    context.Context
-	client *migration.Client
-	debug  bool
+	ctx   context.Context
+	debug bool
 )
 
 var rootCmd = &cobra.Command{
@@ -26,7 +25,7 @@ var rootCmd = &cobra.Command{
 			return fmt.Errorf("getting home directory: %w", err)
 		}
 
-		file, err := OpenLogFile(filepath.Join(home, "migrator.log"))
+		file, err := openLogFile(filepath.Join(home, "migrator.log"))
 		if err != nil {
 			return fmt.Errorf("opening log file: %w", err)
 		}
@@ -36,7 +35,7 @@ var rootCmd = &cobra.Command{
 			return fmt.Errorf("getting debug flag: %w", err)
 		}
 
-		if err := SetLogger(file); err != nil {
+		if err := setLogger(file); err != nil {
 			return fmt.Errorf("setting logger: %w", err)
 		}
 		return nil
@@ -73,6 +72,5 @@ func Execute() {
 
 func init() {
 	rootCmd.PersistentFlags().BoolP("debug", "d", false, "enable debug logging")
-	rootCmd.AddCommand(testCmd)
 	rootCmd.AddCommand(cfgCmd)
 }

@@ -1,6 +1,7 @@
 package migration
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"github.com/charmbracelet/huh"
@@ -9,6 +10,7 @@ import (
 	"github.com/spf13/viper"
 	"log/slog"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -112,7 +114,6 @@ func (cfg *Config) ValidateAndPrompt() error {
 		if err := cfg.runConnectwiseFieldForm(); err != nil {
 			return fmt.Errorf("error validating connectwise custom fields: %w", err)
 		}
-		return fmt.Errorf("error validating connectwise custom fields: %w", err)
 	}
 
 	return nil
@@ -178,6 +179,40 @@ func (cfg *Config) validateConnectwiseCustomField() error {
 		return errors.New("no ConnectWise PSA custom field ID set")
 	}
 
+	slog.Debug("connectwise custom field id found in config", "zendeskTicketId", cfg.CW.FieldIds.ZendeskTicketId)
+	return nil
+}
+
+func (cfg *Config) validateZendeskCustomFields() error {
+	if cfg.Zendesk.FieldIds.PsaCompanyId == 0 || cfg.Zendesk.FieldIds.PsaContactId == 0 {
+		slog.Warn("no Zendesk custom field IDs set")
+		return errors.New("no Zendesk custom field IDs set")
+	}
+
+	slog.Debug("zendesk custom field ids in config",
+		"psaCompanyId", cfg.Zendesk.FieldIds.PsaContactId,
+		"psaContactId", cfg.Zendesk.FieldIds.PsaContactId,
+	)
+	return nil
+}
+
+func (cfg *Config) validateConnectwiseBoardId() error {
+	if cfg.CW.DestinationBoardId == 0 {
+		slog.Warn("no destination board ID set")
+		return errors.New("no destination board ID set")
+	}
+
+	slog.Debug("connectwise board id found in config", "boardId", cfg.CW.DestinationBoardId)
+	return nil
+}
+
+func (cfg *Config) validateConnectwiseStatuses() error {
+	if cfg.CW.OpenStatusId == 0 || cfg.CW.ClosedStatusId == 0 {
+		slog.Warn("no open status ID or closed status ID set")
+		return errors.New("no open status ID or closed status ID set")
+	}
+
+	slog.Debug("board status ids", "open", cfg.CW.OpenStatusId, "closed", cfg.CW.ClosedStatusId)
 	return nil
 }
 
@@ -188,8 +223,8 @@ func (cfg *Config) runCredsForm() error {
 	}
 	slog.Debug("creds form completed", "cfg", cfg)
 
-	viper.Set("zendesk", cfg.Zendesk)
-	viper.Set("connectwise_psa", cfg.CW)
+	viper.Set("zendesk.api_creds", cfg.Zendesk.Creds)
+	viper.Set("connectwise_psa.api_creds", cfg.CW.Creds)
 	if err := viper.WriteConfig(); err != nil {
 		slog.Error("error writing config file", "error", err)
 		return fmt.Errorf("writing config file: %w", err)
@@ -207,19 +242,7 @@ func (cfg *Config) credsForm() *huh.Form {
 		inputGroup("ConnectWise Public Key", &cfg.CW.Creds.PublicKey, requiredInput, true),
 		inputGroup("ConnectWise Private Key", &cfg.CW.Creds.PrivateKey, requiredInput, true),
 		inputGroup("ConnectWise Client ID", &cfg.CW.Creds.ClientId, requiredInput, true),
-	).WithHeight(3).WithShowHelp(false).WithTheme(huh.ThemeBase16())
-}
-
-// inputGroup creates a huh Group with an input field, this is just to make cfg.credsForm prettier.
-func inputGroup(title string, value *string, validate func(string) error, inline bool) *huh.Group {
-	return huh.NewGroup(
-		huh.NewInput().
-			Title(title).
-			Placeholder(*value).
-			Validate(validate).
-			Inline(inline).
-			Value(value),
-	)
+	).WithShowHelp(false).WithTheme(huh.ThemeBase16())
 }
 
 func (cfg *Config) runZendeskTagsForm() error {
@@ -277,6 +300,142 @@ func (cfg *Config) runConnectwiseFieldForm() error {
 	}
 
 	return nil
+}
+
+func (c *Client) processZendeskPsaForms(ctx context.Context) error {
+	uf, err := c.ZendeskClient.GetUserFieldByKey(ctx, psaContactFieldKey)
+	if err != nil {
+		slog.Info("no psa_contact field found in zendesk - creating")
+		uf, err = c.ZendeskClient.PostUserField(ctx, "integer", psaContactFieldKey, psaContactFieldTitle, psaFieldDescription)
+		if err != nil {
+			slog.Error("creating psa contact field", "error", err)
+			return fmt.Errorf("creating psa contact field: %w", err)
+		}
+	}
+
+	cf, err := c.ZendeskClient.GetOrgFieldByKey(ctx, psaCompanyFieldKey)
+	if err != nil {
+		slog.Info("no psa_company field found in zendesk - creating")
+		cf, err = c.ZendeskClient.PostOrgField(ctx, "integer", psaCompanyFieldKey, psaCompanyFieldTitle, psaFieldDescription)
+		if err != nil {
+			slog.Error("creating psa company field", "error", err)
+			return fmt.Errorf("creating psa company field: %w", err)
+		}
+	}
+
+	c.Cfg.Zendesk.FieldIds.PsaContactId = uf.Id
+	c.Cfg.Zendesk.FieldIds.PsaCompanyId = cf.Id
+	viper.Set("zendesk.field_ids.psa_contact_id", uf.Id)
+	viper.Set("zendesk.field_ids.psa_company_id", cf.Id)
+	if err := viper.WriteConfig(); err != nil {
+		slog.Error("writing zendesk psa fields to config", "error", err)
+		return fmt.Errorf("writing zendesk psa fields to config: %w", err)
+	}
+	slog.Debug("CheckZendeskPSAFields", "userField", c.Cfg.Zendesk.FieldIds.PsaContactId, "orgField", c.Cfg.Zendesk.FieldIds.PsaCompanyId)
+	return nil
+}
+
+func (c *Client) runBoardForm(ctx context.Context) error {
+	boards, err := c.CwClient.GetBoards(ctx)
+	if err != nil {
+		return fmt.Errorf("getting boards: %w", err)
+	}
+
+	var boardNames []string
+	boardsMap := make(map[string]int)
+
+	for _, board := range boards {
+		boardNames = append(boardNames, board.Name)
+		boardsMap[board.Name] = board.Id
+	}
+
+	sort.Strings(boardNames)
+	var s string
+	input := huh.NewSelect[string]().
+		Title("Choose destination ConnectWise PSA board").
+		Options(huh.NewOptions(boardNames...)...).
+		Value(&s).
+		WithTheme(huh.ThemeBase16())
+
+	if err := input.Run(); err != nil {
+		return fmt.Errorf("running board form: %w", err)
+	}
+
+	if _, ok := boardsMap[s]; !ok {
+		return errors.New("invalid board selection")
+	}
+
+	c.Cfg.CW.DestinationBoardId = boardsMap[s]
+	viper.Set("connectwise_psa.destination_board_id", boardsMap[s])
+	if err := viper.WriteConfig(); err != nil {
+		return fmt.Errorf("writing config file: %w", err)
+	}
+
+	return nil
+}
+
+func (c *Client) runBoardStatusForm(ctx context.Context, boardId int) error {
+	statuses, err := c.CwClient.GetBoardStatuses(ctx, boardId)
+	if err != nil {
+		return fmt.Errorf("getting board statuses: %w", err)
+	}
+
+	var statusNames []string
+	statusMap := make(map[string]int)
+	for _, status := range statuses {
+		statusNames = append(statusNames, status.Name)
+		statusMap[status.Name] = status.Id
+	}
+
+	sort.Strings(statusNames)
+	var cl, op string
+	form := huh.NewForm(
+		huh.NewGroup(
+			huh.NewSelect[string]().
+				Title("Choose the Open status for the chosen board").
+				Options(huh.NewOptions(statusNames...)...).
+				Value(&op)),
+		huh.NewGroup(
+			huh.NewSelect[string]().
+				Title("Choose the Closed status for the chosen board").
+				Options(huh.NewOptions(statusNames...)...).
+				Value(&cl)),
+	).WithShowHelp(false).WithTheme(huh.ThemeBase16())
+
+	if err := form.Run(); err != nil {
+		return fmt.Errorf("running board status form: %w", err)
+	}
+
+	if _, ok := statusMap[op]; !ok {
+		return errors.New("invalid open status selection")
+	}
+
+	if _, ok := statusMap[cl]; !ok {
+		return errors.New("invalid closed status selection")
+	}
+
+	c.Cfg.CW.OpenStatusId = statusMap[op]
+	c.Cfg.CW.OpenStatusId = statusMap[cl]
+	viper.Set("connectwise_psa.open_status_id", statusMap[op])
+	viper.Set("connectwise_psa.closed_status_id", statusMap[cl])
+
+	if err := viper.WriteConfig(); err != nil {
+		return fmt.Errorf("writing config file: %w", err)
+	}
+
+	return nil
+}
+
+// inputGroup creates a huh Group with an input field, this is just to make cfg.credsForm prettier.
+func inputGroup(title string, value *string, validate func(string) error, inline bool) *huh.Group {
+	return huh.NewGroup(
+		huh.NewInput().
+			Title(title).
+			Placeholder(*value).
+			Validate(validate).
+			Inline(inline).
+			Value(value),
+	)
 }
 
 func strToInt(s string) (int, error) {
