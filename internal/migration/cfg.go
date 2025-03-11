@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/viper"
 	"log/slog"
 	"os"
+	"slices"
 )
 
 const (
@@ -139,9 +140,11 @@ func (c *Client) ZendeskTagForm(ctx context.Context) error {
 		tagNames = append(tagNames, tag.Name)
 	}
 
+	slices.Sort(tagNames)
 	var chosenTags []string
 	input := huh.NewMultiSelect[string]().
 		Title("Select Zendesk tags to migrate").
+		Description("arrows: navigate, space: select, enter/return: submit").
 		Options(huh.NewOptions(tagNames...)...).
 		Value(&chosenTags)
 

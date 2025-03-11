@@ -36,15 +36,15 @@ func (c *Client) ConstructInputTicket(ctx context.Context, ticketId int64) (*Inp
 	}
 
 	inputTicket := &InputTicket{
-		Subject:            ticketInfo.Ticket.Subject,
-		InitialDescription: ticketInfo.Ticket.Description,
-		Closed:             ticketInfo.Ticket.Status == "closed",
+		Subject:            ticketInfo.Subject,
+		InitialDescription: ticketInfo.Description,
+		Closed:             ticketInfo.Status == "closed",
 		Comments:           []commentInput{},
 	}
 
-	inputTicket.Organization, err = c.ZendeskClient.GetOrganization(ctx, ticketInfo.Ticket.OrganizationId)
+	inputTicket.Organization, err = c.ZendeskClient.GetOrganization(ctx, ticketInfo.OrganizationId)
 	if err != nil {
-		slog.Error("error getting ticket organization", "organizationId", ticketInfo.Ticket.OrganizationId, "error", err)
+		slog.Error("error getting ticket organization", "organizationId", ticketInfo.OrganizationId, "error", err)
 		return nil, fmt.Errorf("an error occured getting ticket Organization: %w", err)
 	}
 
@@ -54,14 +54,14 @@ func (c *Client) ConstructInputTicket(ctx context.Context, ticketId int64) (*Inp
 		return nil, fmt.Errorf("an error occured getting ticket Comments: %w", err)
 	}
 
-	inputTicket.Requester, err = c.ZendeskClient.GetUser(ctx, ticketInfo.Ticket.RequesterId)
+	inputTicket.Requester, err = c.ZendeskClient.GetUser(ctx, ticketInfo.RequesterId)
 	if err != nil {
-		slog.Error("error getting ticket requester", "requesterId", ticketInfo.Ticket.RequesterId, "error", err)
+		slog.Error("error getting ticket requester", "requesterId", ticketInfo.RequesterId, "error", err)
 		return nil, fmt.Errorf("an error occured getting ticket Requester: %w", err)
 	}
 
 	// don't error - if Assignee is nil, it will be ignored
-	inputTicket.Assignee, _ = c.ZendeskClient.GetUser(ctx, ticketInfo.Ticket.AssigneeId)
+	inputTicket.Assignee, _ = c.ZendeskClient.GetUser(ctx, ticketInfo.AssigneeId)
 
 	for _, comment := range rawComments.Comments {
 		ci, err := c.createCommentInput(ctx, comment)
@@ -74,7 +74,7 @@ func (c *Client) ConstructInputTicket(ctx context.Context, ticketId int64) (*Inp
 	}
 
 	if inputTicket.Closed {
-		inputTicket.ClosedAt = ticketInfo.Ticket.UpdatedAt
+		inputTicket.ClosedAt = ticketInfo.UpdatedAt
 	}
 
 	slog.Debug("constructed input ticket",

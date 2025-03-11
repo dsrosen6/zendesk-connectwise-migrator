@@ -11,59 +11,6 @@ import (
 
 type ContactsResp []Contact
 
-type Contact struct {
-	Id        int                `json:"id"`
-	FirstName string             `json:"firstName"`
-	LastName  string             `json:"lastName"`
-	Company   ContactCompanyInfo `json:"company"`
-	Site      struct {
-		Id   int    `json:"id"`
-		Name string `json:"name"`
-		Info struct {
-			SiteHref   string `json:"site_href"`
-			MobileGuid string `json:"mobileGuid"`
-		} `json:"_info"`
-	} `json:"site"`
-	InactiveFlag       bool   `json:"inactiveFlag"`
-	Title              string `json:"title,omitempty"`
-	MarriedFlag        bool   `json:"marriedFlag"`
-	ChildrenFlag       bool   `json:"childrenFlag"`
-	UnsubscribeFlag    bool   `json:"unsubscribeFlag"`
-	MobileGuid         string `json:"mobileGuid"`
-	DefaultPhoneType   string `json:"defaultPhoneType,omitempty"`
-	DefaultPhoneNbr    string `json:"defaultPhoneNbr,omitempty"`
-	DefaultBillingFlag bool   `json:"defaultBillingFlag"`
-	DefaultFlag        bool   `json:"defaultFlag"`
-	CompanyLocation    struct {
-		Id   int    `json:"id"`
-		Name string `json:"name"`
-		Info struct {
-			LocationHref string `json:"location_href"`
-		} `json:"_info"`
-	} `json:"companyLocation"`
-	CommunicationItems []CommunicationItem `json:"communicationItems"`
-	Types              []interface{}       `json:"types"`
-}
-
-type ContactCompanyInfo struct {
-	Id         int    `json:"id"`
-	Identifier string `json:"identifier"`
-	Name       string `json:"name"`
-}
-
-type CommunicationItem struct {
-	Id                int                   `json:"id"`
-	Type              CommunicationItemType `json:"type"`
-	Value             string                `json:"value"`
-	DefaultFlag       bool                  `json:"defaultFlag"`
-	Domain            string                `json:"domain,omitempty"`
-	CommunicationType string                `json:"communicationType"`
-}
-type CommunicationItemType struct {
-	Id   int    `json:"id"`
-	Name string `json:"name"`
-}
-
 func (c *Client) PostContact(ctx context.Context, contact *Contact) (*Contact, error) {
 	slog.Debug("psa.PostContact called")
 	u := fmt.Sprintf("%s/company/contacts", baseUrl)

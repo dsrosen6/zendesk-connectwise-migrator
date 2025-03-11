@@ -37,7 +37,7 @@ func (c *Client) MigrateUser(ctx context.Context, zendeskUser zendesk.User, psaC
 		contact = &psa.Contact{
 			FirstName: firstName,
 			LastName:  lastName,
-			Company: psa.ContactCompanyInfo{
+			Company: psa.Company{
 				Id: psaCompanyId,
 			},
 			CommunicationItems: []psa.CommunicationItem{

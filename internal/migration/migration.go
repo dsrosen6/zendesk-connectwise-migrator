@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	psaTicketFieldTitle  = "PSA Ticket"
+	psaTicketFieldTitle  = "PSA TicketResp"
 	psaContactFieldTitle = "PSA Contact"
 	psaContactFieldKey   = "psa_contact"
 	psaCompanyFieldTitle = "PSA Company"
@@ -59,7 +59,7 @@ func Run(ctx context.Context) error {
 	if err := InitConfig(); err != nil {
 		return fmt.Errorf("initializing config: %w", err)
 	}
-	
+
 	cfg := &Config{}
 	if err := viper.Unmarshal(cfg); err != nil {
 		slog.Error("unmarshaling config", "error", err)

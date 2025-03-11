@@ -6,7 +6,7 @@ import (
 	"log/slog"
 )
 
-type Tags struct {
+type TagsResp struct {
 	Tags  []Tag `json:"tags"`
 	Meta  Meta  `json:"meta"`
 	Links Links `json:"links"`
@@ -20,8 +20,8 @@ type Tag struct {
 func (c *Client) GetTags(ctx context.Context) ([]Tag, error) {
 	slog.Debug("zendesk.Client.GetTags called")
 	initialUrl := fmt.Sprintf("%s/tags?page[size]=100", c.baseUrl)
-	allTags := &Tags{}
-	currentPage := &Tags{}
+	allTags := &TagsResp{}
+	currentPage := &TagsResp{}
 
 	if err := c.apiRequest(ctx, "GET", initialUrl, nil, &currentPage); err != nil {
 		return nil, fmt.Errorf("an error occured getting tags: %w", err)
@@ -30,7 +30,7 @@ func (c *Client) GetTags(ctx context.Context) ([]Tag, error) {
 	allTags.Tags = append(allTags.Tags, currentPage.Tags...)
 
 	for currentPage.Meta.HasMore {
-		nextPage := &Tags{}
+		nextPage := &TagsResp{}
 		if err := c.apiRequest(ctx, "GET", currentPage.Links.Next, nil, &nextPage); err != nil {
 			return nil, fmt.Errorf("an error occured getting the tags: %w", err)
 		}

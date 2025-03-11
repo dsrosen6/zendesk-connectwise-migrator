@@ -41,7 +41,7 @@ func NewClient(creds Creds, httpClient *http.Client) *Client {
 func (c *Client) ConnectionTest(ctx context.Context) error {
 	slog.Debug("psa.ConnectionTest called")
 	url := fmt.Sprintf("%s/company/companies?pageSize=1", baseUrl)
-	co := Companies{}
+	co := CompaniesResp{}
 
 	if err := c.apiRequest(ctx, "GET", url, nil, &co); err != nil {
 		return err
