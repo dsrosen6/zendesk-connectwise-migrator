@@ -192,7 +192,6 @@ type Source struct {
 type Status struct {
 	Id   int    `json:"id"`
 	Name string `json:"name"`
-	Sort int    `json:"Sort"`
 }
 
 type Team struct {

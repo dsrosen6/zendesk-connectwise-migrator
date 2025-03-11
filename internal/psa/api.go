@@ -51,7 +51,6 @@ func (c *Client) ConnectionTest(ctx context.Context) error {
 }
 
 func (c *Client) apiRequest(ctx context.Context, method, url string, body io.Reader, target interface{}) error {
-	slog.Debug("psa.GetCompanyByName called")
 	req, err := http.NewRequestWithContext(ctx, method, url, body)
 	if err != nil {
 		return err
