@@ -76,7 +76,7 @@ func InitConfig() (*Config, error) {
 		if errors.As(err, &configFileNotFoundError) {
 			setCfgDefaults()
 			path := home + configFileSubPath
-			fmt.Println("Creating default config file")
+			slog.Info("creating default config file")
 			if err := viper.WriteConfigAs(path); err != nil {
 				slog.Error("error creating default config file", "error", err)
 				fmt.Println("Error creating default config file:", err)
@@ -235,13 +235,50 @@ func (cfg *Config) runCredsForm() error {
 
 func (cfg *Config) credsForm() *huh.Form {
 	return huh.NewForm(
-		inputGroup("Zendesk Token", &cfg.Zendesk.Creds.Token, requiredInput, true),
-		inputGroup("Zendesk Username", &cfg.Zendesk.Creds.Username, requiredInput, true),
-		inputGroup("Zendesk Subdomain", &cfg.Zendesk.Creds.Subdomain, requiredInput, true),
-		inputGroup("ConnectWise Company ID", &cfg.CW.Creds.CompanyId, requiredInput, true),
-		inputGroup("ConnectWise Public Key", &cfg.CW.Creds.PublicKey, requiredInput, true),
-		inputGroup("ConnectWise Private Key", &cfg.CW.Creds.PrivateKey, requiredInput, true),
-		inputGroup("ConnectWise Client ID", &cfg.CW.Creds.ClientId, requiredInput, true),
+		huh.NewGroup(
+			huh.NewInput().
+				Title("Zendesk Token").
+				Placeholder(cfg.Zendesk.Creds.Token).
+				Validate(requiredInput).
+				Inline(true).
+				Value(&cfg.Zendesk.Creds.Token),
+			huh.NewInput().
+				Title("Zendesk Username").
+				Placeholder(cfg.Zendesk.Creds.Username).
+				Validate(requiredInput).
+				Inline(true).
+				Value(&cfg.Zendesk.Creds.Username),
+			huh.NewInput().
+				Title("Zendesk Subdomain").
+				Placeholder(cfg.Zendesk.Creds.Subdomain).
+				Validate(requiredInput).
+				Inline(true).
+				Value(&cfg.Zendesk.Creds.Subdomain),
+			huh.NewInput().
+				Title("ConnectWise Company ID").
+				Placeholder(cfg.CW.Creds.CompanyId).
+				Validate(requiredInput).
+				Inline(true).
+				Value(&cfg.CW.Creds.CompanyId),
+			huh.NewInput().
+				Title("ConnectWise Public Key").
+				Placeholder(cfg.CW.Creds.PublicKey).
+				Validate(requiredInput).
+				Inline(true).
+				Value(&cfg.CW.Creds.PublicKey),
+			huh.NewInput().
+				Title("ConnectWise Private Key").
+				Placeholder(cfg.CW.Creds.PrivateKey).
+				Validate(requiredInput).
+				Inline(true).
+				Value(&cfg.CW.Creds.PrivateKey),
+			huh.NewInput().
+				Title("ConnectWise Client ID").
+				Placeholder(cfg.CW.Creds.ClientId).
+				Validate(requiredInput).
+				Inline(true).
+				Value(&cfg.CW.Creds.ClientId),
+		),
 	).WithShowHelp(false).WithTheme(huh.ThemeBase16())
 }
 
@@ -424,18 +461,6 @@ func (c *Client) runBoardStatusForm(ctx context.Context, boardId int) error {
 	}
 
 	return nil
-}
-
-// inputGroup creates a huh Group with an input field, this is just to make cfg.credsForm prettier.
-func inputGroup(title string, value *string, validate func(string) error, inline bool) *huh.Group {
-	return huh.NewGroup(
-		huh.NewInput().
-			Title(title).
-			Placeholder(*value).
-			Validate(validate).
-			Inline(inline).
-			Value(value),
-	)
 }
 
 func strToInt(s string) (int, error) {
