@@ -41,8 +41,8 @@ type CwCfg struct {
 }
 
 type ZdFieldIds struct {
-	PsaCompanyId int `mapstructure:"psa_company_id" json:"psa_company_id"`
-	PsaContactId int `mapstructure:"psa_contact_id" json:"psa_contact_id"`
+	PsaCompanyId int64 `mapstructure:"psa_company_id" json:"psa_company_id"`
+	PsaContactId int64 `mapstructure:"psa_contact_id" json:"psa_contact_id"`
 }
 
 type CwFieldIds struct {
@@ -50,12 +50,12 @@ type CwFieldIds struct {
 }
 
 // InitConfig reads in config file and ENV variables if set.
-func InitConfig() error {
+func InitConfig() (*Config, error) {
 	// Find home directory.
 	home, err := os.UserHomeDir()
 	if err != nil {
 		slog.Error("error getting home directory", "error", err)
-		return fmt.Errorf("getting home directory: %w", err)
+		return nil, fmt.Errorf("getting home directory: %w", err)
 	}
 
 	if CfgFile != "" {
@@ -86,10 +86,55 @@ func InitConfig() error {
 		}
 	}
 
+	cfg := &Config{}
+	if err := viper.Unmarshal(cfg); err != nil {
+		slog.Error("unmarshaling config", "error", err)
+		return nil, fmt.Errorf("unmarshaling config: %w", err)
+	}
+
+	return cfg, nil
+}
+
+func (cfg *Config) ValidateAndPrompt() error {
+	if err := cfg.validateCreds(); err != nil {
+		if err := cfg.runCredsForm(); err != nil {
+			return fmt.Errorf("error running creds form: %w", err)
+		}
+	}
+
+	if err := cfg.validateZendeskTags(); err != nil {
+		if err := cfg.runZendeskTagsForm(); err != nil {
+			return fmt.Errorf("error validating zendesk tags: %w", err)
+		}
+	}
+
+	if err := cfg.validateConnectwiseCustomField(); err != nil {
+		if err := cfg.runConnectwiseFieldForm(); err != nil {
+			return fmt.Errorf("error validating connectwise custom fields: %w", err)
+		}
+		return fmt.Errorf("error validating connectwise custom fields: %w", err)
+	}
+
 	return nil
 }
 
-func (cfg *Config) ValidateCreds() error {
+func (cfg *Config) PromptAllFields() error {
+	if err := cfg.runCredsForm(); err != nil {
+		slog.Error("error running creds form", "error", err)
+	}
+
+	if err := cfg.runZendeskTagsForm(); err != nil {
+		slog.Error("error running tags form", "error", err)
+	}
+
+	if err := cfg.runConnectwiseFieldForm(); err != nil {
+		slog.Error("error running field form", "error", err)
+	}
+
+	return nil
+}
+
+func (cfg *Config) validateCreds() error {
 	slog.Debug("validating required fields")
 	var missing []string
 
@@ -118,35 +163,7 @@ func (cfg *Config) ValidateCreds() error {
 	return nil
 }
 
-func (cfg *Config) ValidateAndPrompt() error {
-	if err := cfg.ValidateCreds(); err != nil {
-		if err := cfg.RunCredsForm(); err != nil {
-			return fmt.Errorf("error running creds form: %w", err)
-		}
-	}
-
-	if err := cfg.ValidateZendeskTags(); err != nil {
-		if err := cfg.RunZendeskTagsForm(); err != nil {
-			return fmt.Errorf("error validating zendesk tags: %w", err)
-		}
-	}
-
-	//if err := cfg.ValidateZendeskCustomFields(); err != nil {
-	//	// TODO: add form field for this
-	//	return fmt.Errorf("error validating zendesk custom fields: %w", err)
-	//}
-
-	if err := cfg.ValidateConnectWiseCustomField(); err != nil {
-		if err := cfg.RunConnectwiseFieldForm(); err != nil {
-			return fmt.Errorf("error validating connectwise custom fields: %w", err)
-		}
-		return fmt.Errorf("error validating connectwise custom fields: %w", err)
-	}
-
-	return nil
-}
-
-func (cfg *Config) ValidateZendeskTags() error {
+func (cfg *Config) validateZendeskTags() error {
 	if len(cfg.Zendesk.TagsToMigrate) == 0 {
 		slog.Warn("no tags selected to migrate")
 		return errors.New("no tags selected to migrate")
@@ -155,16 +172,7 @@ func (cfg *Config) ValidateZendeskTags() error {
 	return nil
 }
 
-func (cfg *Config) ValidateZendeskCustomFields() error {
-	if cfg.Zendesk.FieldIds.PsaCompanyId == 0 || cfg.Zendesk.FieldIds.PsaContactId == 0 {
-		slog.Warn("no Zendesk custom field IDs set")
-		return errors.New("no Zendesk custom field IDs set")
-	}
-
-	return nil
-}
-
-func (cfg *Config) ValidateConnectWiseCustomField() error {
+func (cfg *Config) validateConnectwiseCustomField() error {
 	if cfg.CW.FieldIds.ZendeskTicketId == 0 {
 		slog.Warn("no ConnectWise PSA custom field ID set")
 		return errors.New("no ConnectWise PSA custom field ID set")
@@ -173,7 +181,7 @@ func (cfg *Config) ValidateConnectWiseCustomField() error {
 	return nil
 }
 
-func (cfg *Config) RunCredsForm() error {
+func (cfg *Config) runCredsForm() error {
 	if err := cfg.credsForm().Run(); err != nil {
 		slog.Error("error running creds form", "error", err)
 		return fmt.Errorf("running creds form: %w", err)
@@ -199,7 +207,7 @@ func (cfg *Config) credsForm() *huh.Form {
 		inputGroup("ConnectWise Public Key", &cfg.CW.Creds.PublicKey, requiredInput, true),
 		inputGroup("ConnectWise Private Key", &cfg.CW.Creds.PrivateKey, requiredInput, true),
 		inputGroup("ConnectWise Client ID", &cfg.CW.Creds.ClientId, requiredInput, true),
-	).WithHeight(3).WithShowHelp(false).WithTheme(huh.ThemeBase())
+	).WithHeight(3).WithShowHelp(false).WithTheme(huh.ThemeBase16())
 }
 
 // inputGroup creates a huh Group with an input field, this is just to make cfg.credsForm prettier.
@@ -214,24 +222,26 @@ func inputGroup(title string, value *string, validate func(string) error, inline
 	)
 }
 
-func (cfg *Config) RunZendeskTagsForm() error {
-	var tagsString string
+func (cfg *Config) runZendeskTagsForm() error {
+	tagsString := strings.Join(cfg.Zendesk.TagsToMigrate, ",")
 	input := huh.NewInput().
 		Title("Enter Zendesk Tags to Migrate").
+		Placeholder(tagsString).
 		Description("Separate tags by commas, and then press Enter").
-		Value(&tagsString)
+		Validate(requiredInput).
+		Value(&tagsString).
+		WithTheme(huh.ThemeBase16())
 
-	if err := input.WithTheme(huh.ThemeBase()).Run(); err != nil {
+	if err := input.Run(); err != nil {
 		return fmt.Errorf("running tag selection form: %w", err)
 	}
 
 	// Split tags by comma, and then trim any whitespace from each tag
 	var tags []string
-	if tagsString != "" {
-		tags = strings.Split(tagsString, ",")
-		for i, tag := range tags {
-			tags[i] = strings.TrimSpace(tag)
-		}
+
+	tags = strings.Split(tagsString, ",")
+	for i, tag := range tags {
+		tags[i] = strings.TrimSpace(tag)
 	}
 
 	viper.Set("zendesk.tags_to_migrate", tags)
@@ -242,16 +252,17 @@ func (cfg *Config) RunZendeskTagsForm() error {
 	return nil
 }
 
-func (cfg *Config) RunConnectwiseFieldForm() error {
-	var s string
+func (cfg *Config) runConnectwiseFieldForm() error {
+	s := strconv.Itoa(cfg.CW.FieldIds.ZendeskTicketId)
 	input := huh.NewInput().
 		Title("Enter ConnectWise PSA Custom Field ID").
-		Description("Navigate to ConnectWise PSA > System > Setup Tables > Custom Fields > Ticket\n" +
-			"If you haven't made one, create a new Custom Field with the name 'Zendesk Ticket ID'\n" +
-			"Field Type: Number, Number of Decimals: 0. Save the field and enter the ID here.").
-		Value(&s)
+		Description("See docs if you have not made one.").
+		Placeholder(s).
+		Validate(requiredInput).
+		Value(&s).
+		WithTheme(huh.ThemeBase16())
 
-	if err := input.WithTheme(huh.ThemeBase()).Run(); err != nil {
+	if err := input.Run(); err != nil {
 		return fmt.Errorf("running custom field form: %w", err)
 	}
 

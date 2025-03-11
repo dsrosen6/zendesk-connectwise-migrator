@@ -2,6 +2,7 @@ package migration
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/psa"
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/zendesk"
@@ -19,11 +20,6 @@ const (
 	psaFieldDescription  = "Created by Zendesk to ConnectWise PSA Migration utility"
 )
 
-var (
-	psaContactFieldId int64
-	psaCompanyFieldId int64
-)
-
 type Client struct {
 	ZendeskClient *zendesk.Client
 	CwClient      *psa.Client
@@ -37,14 +33,9 @@ type Agent struct {
 }
 
 func Run(ctx context.Context) error {
-	if err := InitConfig(); err != nil {
-		return fmt.Errorf("initializing config: %w", err)
-	}
-
-	cfg := &Config{}
-	if err := viper.Unmarshal(cfg); err != nil {
-		slog.Error("unmarshaling config", "error", err)
-		return fmt.Errorf("unmarshaling config: %w", err)
+	cfg, err := InitConfig()
+	if err != nil {
+		return fmt.Errorf("failed to initialize config: %w", err)
 	}
 
 	if err := cfg.ValidateAndPrompt(); err != nil {
@@ -56,6 +47,12 @@ func Run(ctx context.Context) error {
 
 	if err := client.ConnectionTest(ctx); err != nil {
 		return fmt.Errorf("connection test: %w", err)
+	}
+
+	if err := client.ValidateZendeskCustomFields(); err != nil {
+		if err := client.GetOrCreateZendeskPsaFields(ctx); err != nil {
+			return fmt.Errorf("getting zendesk fields: %w", err)
+		}
 	}
 
 	return nil
@@ -88,8 +85,16 @@ func (c *Client) ConnectionTest(ctx context.Context) error {
 
 	return nil
 }
+func (c *Client) ValidateZendeskCustomFields() error {
+	if c.Cfg.Zendesk.FieldIds.PsaCompanyId == 0 || c.Cfg.Zendesk.FieldIds.PsaContactId == 0 {
+		slog.Warn("no Zendesk custom field IDs set")
+		return errors.New("no Zendesk custom field IDs set")
+	}
 
-func (c *Client) CheckZendeskPSAFields(ctx context.Context) error {
+	return nil
+}
+
+func (c *Client) GetOrCreateZendeskPsaFields(ctx context.Context) error {
 	uf, err := c.ZendeskClient.GetUserFieldByKey(ctx, psaContactFieldKey)
 	if err != nil {
 		slog.Info("no psa_contact field found in zendesk - creating")
@@ -109,8 +114,15 @@ func (c *Client) CheckZendeskPSAFields(ctx context.Context) error {
 			return fmt.Errorf("creating psa company field: %w", err)
 		}
 	}
-	psaContactFieldId = uf.Id
-	psaCompanyFieldId = cf.Id
-	slog.Debug("CheckZendeskPSAFields", "userField", psaContactFieldId, "orgField", psaCompanyFieldId)
+
+	c.Cfg.Zendesk.FieldIds.PsaContactId = uf.Id
+	c.Cfg.Zendesk.FieldIds.PsaCompanyId = cf.Id
+	viper.Set("zendesk.field_ids.psa_contact_id", uf.Id)
+	viper.Set("zendesk.field_ids.psa_company_id", cf.Id)
+	if err := viper.WriteConfig(); err != nil {
+		slog.Error("writing zendesk psa fields to config", "error", err)
+		return fmt.Errorf("writing zendesk psa fields to config: %w", err)
+	}
+	slog.Debug("CheckZendeskPSAFields", "userField", c.Cfg.Zendesk.FieldIds.PsaContactId, "orgField", c.Cfg.Zendesk.FieldIds.PsaCompanyId)
 	return nil
 }

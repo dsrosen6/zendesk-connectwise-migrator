@@ -46,6 +46,24 @@ var rootCmd = &cobra.Command{
 	},
 }
 
+var cfgCmd = &cobra.Command{
+	Use:     "config",
+	Aliases: []string{"cfg"},
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, err := migration.InitConfig()
+		if err != nil {
+			return fmt.Errorf("initializing config: %w", err)
+		}
+
+		if err := cfg.PromptAllFields(); err != nil {
+			return fmt.Errorf("prompting fields: %w", err)
+		}
+
+		fmt.Println("Config saved")
+		return nil
+	},
+}
+
 func Execute() {
 	err := rootCmd.Execute()
 	if err != nil {
@@ -56,4 +74,5 @@ func Execute() {
 func init() {
 	rootCmd.PersistentFlags().BoolP("debug", "d", false, "enable debug logging")
 	rootCmd.AddCommand(testCmd)
+	rootCmd.AddCommand(cfgCmd)
 }
