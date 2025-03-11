@@ -12,7 +12,6 @@ import (
 )
 
 const (
-	psaTicketFieldTitle  = "PSA TicketResp"
 	psaContactFieldTitle = "PSA Contact"
 	psaContactFieldKey   = "psa_contact"
 	psaCompanyFieldTitle = "PSA Company"
@@ -21,7 +20,6 @@ const (
 )
 
 var (
-	psaTicketFieldId  int64
 	psaContactFieldId int64
 	psaCompanyFieldId int64
 )
@@ -30,23 +28,6 @@ type Client struct {
 	ZendeskClient *zendesk.Client
 	CwClient      *psa.Client
 	Cfg           *Config
-}
-
-type Config struct {
-	Zendesk ZdCfg `mapstructure:"zendesk" json:"zendesk"`
-	CW      CwCfg `mapstructure:"connectwise_psa" json:"connectwise_psa"`
-}
-
-type ZdCfg struct {
-	Creds         zendesk.Creds `mapstructure:"api_creds" json:"api_creds"`
-	TagsToMigrate []string      `mapstructure:"tags_to_migrate" json:"tags_to_migrate"`
-}
-
-type CwCfg struct {
-	Creds              psa.Creds `mapstructure:"api_creds" json:"api_creds"`
-	ClosedStatusId     int       `mapstructure:"closed_status_id" json:"closed_status_id"`
-	OpenStatusId       int       `mapstructure:"open_status_id" json:"open_status_id"`
-	DestinationBoardId int       `mapstructure:"destination_board_id" json:"destination_board_id"`
 }
 
 type Agent struct {
@@ -66,10 +47,8 @@ func Run(ctx context.Context) error {
 		return fmt.Errorf("unmarshaling config: %w", err)
 	}
 
-	if err := cfg.ValidateConfig(); err != nil {
-		if err := cfg.RunCredsForm(); err != nil {
-			return fmt.Errorf("validating config: %w", err)
-		}
+	if err := cfg.ValidateAndPrompt(); err != nil {
+		return fmt.Errorf("validating and prompt config: %w", err)
 	}
 	slog.Info("Config Validated")
 
@@ -77,14 +56,6 @@ func Run(ctx context.Context) error {
 
 	if err := client.ConnectionTest(ctx); err != nil {
 		return fmt.Errorf("connection test: %w", err)
-	}
-
-	if err := client.CheckZendeskPSAFields(ctx); err != nil {
-		return fmt.Errorf("checking zendesk PSA fields: %w", err)
-	}
-
-	if err := client.ZendeskTagForm(ctx); err != nil {
-		return fmt.Errorf("tag form: %w", err)
 	}
 
 	return nil
@@ -119,16 +90,6 @@ func (c *Client) ConnectionTest(ctx context.Context) error {
 }
 
 func (c *Client) CheckZendeskPSAFields(ctx context.Context) error {
-	tf, err := c.ZendeskClient.GetTicketFieldByTitle(ctx, psaTicketFieldTitle)
-	if err != nil {
-		slog.Info("no psa_ticket field found in zendesk - creating")
-		tf, err = c.ZendeskClient.PostTicketField(ctx, "integer", psaTicketFieldTitle, psaFieldDescription)
-		if err != nil {
-			slog.Error("creating psa ticket field", "error", err)
-			return fmt.Errorf("creating psa ticket field: %w", err)
-		}
-	}
-
 	uf, err := c.ZendeskClient.GetUserFieldByKey(ctx, psaContactFieldKey)
 	if err != nil {
 		slog.Info("no psa_contact field found in zendesk - creating")
@@ -148,9 +109,8 @@ func (c *Client) CheckZendeskPSAFields(ctx context.Context) error {
 			return fmt.Errorf("creating psa company field: %w", err)
 		}
 	}
-	psaTicketFieldId = tf.Id
 	psaContactFieldId = uf.Id
 	psaCompanyFieldId = cf.Id
-	slog.Debug("CheckZendeskPSAFields", "ticketField", psaTicketFieldId, "userField", psaContactFieldId, "orgField", psaCompanyFieldId)
+	slog.Debug("CheckZendeskPSAFields", "userField", psaContactFieldId, "orgField", psaCompanyFieldId)
 	return nil
 }

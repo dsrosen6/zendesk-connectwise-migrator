@@ -104,6 +104,7 @@ type Ticket struct {
 	Location                   Location        `json:"location"`
 	Department                 Department      `json:"department"`
 	EscalationLevel            int             `json:"escalationLevel"`
+	CustomFields               []CustomField   `json:"customFields"`
 }
 
 type Board struct {
@@ -133,6 +134,15 @@ type CompanyLocation struct {
 type Country struct {
 	Id   int    `json:"id"`
 	Name string `json:"name"`
+}
+
+type CustomField struct {
+	Id               int    `json:"id"`
+	Caption          string `json:"caption"`
+	Type             string `json:"type"`
+	EntryMethod      string `json:"entryMethod"`
+	NumberOfDecimals int    `json:"numberOfDecimals"`
+	ConnectWiseId    string `json:"connectWiseId"`
 }
 
 type DefaultContact struct {
