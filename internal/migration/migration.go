@@ -3,6 +3,7 @@ package migration
 import (
 	"context"
 	"fmt"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/psa"
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/zendesk"
 	"log/slog"
@@ -63,6 +64,11 @@ func Run(ctx context.Context) error {
 		if err := client.runBoardStatusForm(ctx, cfg.CW.DestinationBoardId); err != nil {
 			return fmt.Errorf("running board status form: %w", err)
 		}
+	}
+
+	p := tea.NewProgram(initialModel())
+	if _, err := p.Run(); err != nil {
+		return fmt.Errorf("an error occured launching the terminal interface: %w", err)
 	}
 
 	return nil
