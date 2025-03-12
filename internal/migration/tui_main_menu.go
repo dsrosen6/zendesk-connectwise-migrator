@@ -1,4 +1,4 @@
-package tui
+package migration
 
 import (
 	"fmt"
@@ -8,6 +8,7 @@ import (
 )
 
 type mainMenuModel struct {
+	client      *Client
 	form        *huh.Form
 	currentMenu menuChoice
 }
@@ -19,8 +20,9 @@ const (
 	checkOrgsMenu menuChoice = "checkOrgsMenu"
 )
 
-func newMainMenuModel() mainMenuModel {
+func newMainMenuModel(c *Client) mainMenuModel {
 	return mainMenuModel{
+		client:      c,
 		form:        mainMenuForm(),
 		currentMenu: mainMenu,
 	}
@@ -49,7 +51,7 @@ func (mm mainMenuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch choice {
 		case checkOrgsMenu:
 			slog.Debug("switching to checkOrgsMenu")
-			currentModel = newCheckOrgsModel()
+			currentModel = newCheckOrgsModel(mm.client)
 			return currentModel, nil
 		}
 	}

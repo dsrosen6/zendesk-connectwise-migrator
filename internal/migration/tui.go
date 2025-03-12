@@ -1,4 +1,4 @@
-package tui
+package migration
 
 import (
 	"context"
@@ -6,16 +6,18 @@ import (
 )
 
 var (
-	currentModel tea.Model = newMainMenuModel()
+	currentModel tea.Model
 	ctx          context.Context
 )
 
 type Model struct {
+	client       *Client
 	currentModel tea.Model
 }
 
-func NewModel(cx context.Context) Model {
+func NewModel(cx context.Context, c *Client) Model {
 	ctx = cx
+	currentModel = newMainMenuModel(c)
 	return Model{
 		currentModel: currentModel,
 	}
