@@ -5,7 +5,7 @@ import (
 	"fmt"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/migration"
-	"github.com/dsrosen/zendesk-connectwise-migrator/internal/tui"
+	"github.com/dsrosen/zendesk-connectwise-migrator/internal/migration/tui"
 	"github.com/spf13/cobra"
 	"os"
 	"path/filepath"
@@ -48,7 +48,17 @@ var runCmd = &cobra.Command{
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return migration.Run(ctx)
+		client, err := migration.RunStartup(ctx)
+		if err != nil {
+			return fmt.Errorf("running startup: %w", err)
+		}
+
+		p := tea.NewProgram(tui.NewModel(ctx, client))
+		if _, err := p.Run(); err != nil {
+			return fmt.Errorf("an error occured launching the terminal interface: %w", err)
+		}
+
+		return nil
 	},
 }
 
@@ -70,18 +80,6 @@ var cfgCmd = &cobra.Command{
 	},
 }
 
-var tuiCmd = &cobra.Command{
-	Use: "tui",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		p := tea.NewProgram(tui.NewModel())
-		if _, err := p.Run(); err != nil {
-			return err
-		}
-
-		return nil
-	},
-}
-
 func Execute() {
 	err := rootCmd.Execute()
 	if err != nil {
@@ -92,6 +90,5 @@ func Execute() {
 func init() {
 	rootCmd.PersistentFlags().BoolP("debug", "d", false, "enable debug logging")
 	rootCmd.AddCommand(cfgCmd)
-	rootCmd.AddCommand(tuiCmd)
 	rootCmd.AddCommand(runCmd)
 }

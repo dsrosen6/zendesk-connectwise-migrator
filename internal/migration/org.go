@@ -2,8 +2,8 @@ package migration
 
 import (
 	"context"
-	"github.com/dsrosen/zendesk-connectwise-migrator/internal/psa"
-	"github.com/dsrosen/zendesk-connectwise-migrator/internal/zendesk"
+	"github.com/dsrosen/zendesk-connectwise-migrator/internal/apis/psa"
+	"github.com/dsrosen/zendesk-connectwise-migrator/internal/apis/zendesk"
 	"log/slog"
 )
 

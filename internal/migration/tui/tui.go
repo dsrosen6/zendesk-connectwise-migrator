@@ -1,31 +1,37 @@
 package tui
 
 import (
+	"context"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/dsrosen/zendesk-connectwise-migrator/internal/migration"
+	"log/slog"
+)
+
+var (
+	ctx context.Context
 )
 
 type Model struct {
-	model   tea.Model
-	mmModel tea.Model
-	ocModel tea.Model
+	migrationClient *migration.Client
+	currentModel    tea.Model
 }
 
 type switchModelMsg tea.Model
 
-func NewModel() Model {
-	mm := newMainMenuModel()
-	oc := newOrgCheckerModel()
+func NewModel(cx context.Context, mc *migration.Client) Model {
+	ctx = cx
+
+	mm := newMainMenuModel(mc)
+
 	return Model{
-		model:   mm,
-		mmModel: mm,
-		ocModel: oc,
+		migrationClient: mc,
+		currentModel:    mm,
 	}
 }
 
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(
-		m.mmModel.Init(),
-		m.ocModel.Init(),
+		m.currentModel.Init(),
 	)
 }
 
@@ -44,17 +50,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case switchModelMsg:
-		m.model = msg
+		slog.Debug("got switchModelCmd", "model", msg)
+		m.currentModel = msg
+		cmds = append(cmds, m.currentModel.Init())
 	}
 
-	m.model, cmd = m.model.Update(msg)
+	m.currentModel, cmd = m.currentModel.Update(msg)
 	cmds = append(cmds, cmd)
 
 	return m, tea.Batch(cmds...)
 }
 
 func (m Model) View() string {
-	return m.model.View()
+	return m.currentModel.View()
 }
 
 func switchModel(sm tea.Model) tea.Cmd {

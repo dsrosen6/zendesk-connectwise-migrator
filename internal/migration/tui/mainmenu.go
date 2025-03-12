@@ -3,22 +3,26 @@ package tui
 import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
+	"github.com/dsrosen/zendesk-connectwise-migrator/internal/migration"
 )
 
 type mainMenuModel struct {
-	form *huh.Form
+	migrationClient *migration.Client
+	form            *huh.Form
 }
 
-func newMainMenuModel() mainMenuModel {
+func newMainMenuModel(mc *migration.Client) *mainMenuModel {
 	f := mainMenuForm()
-	return mainMenuModel{form: f}
+	return &mainMenuModel{
+		migrationClient: mc,
+		form:            f}
 }
 
-func (m mainMenuModel) Init() tea.Cmd {
+func (m *mainMenuModel) Init() tea.Cmd {
 	return tea.Sequence(m.form.Init())
 }
 
-func (m mainMenuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *mainMenuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var (
 		cmds []tea.Cmd
 	)
@@ -33,14 +37,14 @@ func (m mainMenuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		choice := m.form.GetString("mainMenuChoice")
 		switch choice {
 		case "orgChecker":
-			cmds = append(cmds, switchModel(orgCheckerModel{}))
+			cmds = append(cmds, switchModel(newOrgCheckerModel(m.migrationClient)))
 		}
 	}
 
 	return m, tea.Batch(cmds...)
 }
 
-func (m mainMenuModel) View() string {
+func (m *mainMenuModel) View() string {
 	return m.form.View()
 }
 

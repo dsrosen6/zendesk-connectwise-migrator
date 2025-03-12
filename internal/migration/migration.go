@@ -3,10 +3,8 @@ package migration
 import (
 	"context"
 	"fmt"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/dsrosen/zendesk-connectwise-migrator/internal/psa"
-	"github.com/dsrosen/zendesk-connectwise-migrator/internal/tui"
-	"github.com/dsrosen/zendesk-connectwise-migrator/internal/zendesk"
+	"github.com/dsrosen/zendesk-connectwise-migrator/internal/apis/psa"
+	"github.com/dsrosen/zendesk-connectwise-migrator/internal/apis/zendesk"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -32,48 +30,42 @@ type Agent struct {
 	CwId      int    `mapstructure:"connectwise_member_id" json:"connectwise_member_id"`
 }
 
-func Run(ctx context.Context) error {
+func RunStartup(ctx context.Context) (*Client, error) {
 	cfg, err := InitConfig()
 	if err != nil {
-		return fmt.Errorf("failed to initialize config: %w", err)
+		return nil, fmt.Errorf("failed to initialize config: %w", err)
 	}
 
 	if err := cfg.ValidateAndPrompt(); err != nil {
-		return fmt.Errorf("validating and prompt config: %w", err)
+		return nil, fmt.Errorf("validating and prompt config: %w", err)
 	}
 	slog.Info("Config Validated")
 
 	client := newClient(cfg.Zendesk.Creds, cfg.CW.Creds, cfg)
 
 	if err := client.testConnection(ctx); err != nil {
-		return fmt.Errorf("connection test: %w", err)
+		return nil, fmt.Errorf("connection test: %w", err)
 	}
 
 	if err := client.Cfg.validateZendeskCustomFields(); err != nil {
 		if err := client.processZendeskPsaForms(ctx); err != nil {
-			return fmt.Errorf("getting zendesk fields: %w", err)
+			return nil, fmt.Errorf("getting zendesk fields: %w", err)
 		}
 	}
 
 	if err := client.Cfg.validateConnectwiseBoardId(); err != nil {
 		if err := client.runBoardForm(ctx); err != nil {
-			return fmt.Errorf("running board form: %w", err)
+			return nil, fmt.Errorf("running board form: %w", err)
 		}
 	}
 
 	if err := client.Cfg.validateConnectwiseStatuses(); err != nil {
 		if err := client.runBoardStatusForm(ctx, cfg.CW.DestinationBoardId); err != nil {
-			return fmt.Errorf("running board status form: %w", err)
+			return nil, fmt.Errorf("running board status form: %w", err)
 		}
 	}
 
-	p := tea.NewProgram(tui.NewModel())
-	slog.Debug("Starting terminal interface")
-	if _, err := p.Run(); err != nil {
-		return fmt.Errorf("an error occured launching the terminal interface: %w", err)
-	}
-
-	return nil
+	return client, nil
 }
 
 func newClient(zendeskCreds zendesk.Creds, cwCreds psa.Creds, cfg *Config) *Client {
