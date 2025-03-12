@@ -5,6 +5,7 @@ import (
 	"fmt"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/psa"
+	"github.com/dsrosen/zendesk-connectwise-migrator/internal/tui"
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/zendesk"
 	"log/slog"
 	"net/http"
@@ -66,7 +67,7 @@ func Run(ctx context.Context) error {
 		}
 	}
 
-	p := tea.NewProgram(NewModel(ctx, client))
+	p := tea.NewProgram(tui.NewModel())
 	slog.Debug("Starting terminal interface")
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("an error occured launching the terminal interface: %w", err)
