@@ -8,6 +8,13 @@ import (
 	"time"
 )
 
+type TicketSearchResp struct {
+	Tickets      []Ticket `json:"results"`
+	NextPage     string   `json:"next_page"`
+	PreviousPage string   `json:"previous_page"`
+	Count        int      `json:"count"`
+}
+
 type TicketResp struct {
 	Ticket Ticket `json:"ticket"`
 }
@@ -93,6 +100,30 @@ type To struct {
 	Name     string  `json:"name"`
 	Address  string  `json:"address"`
 	EmailCcs []int64 `json:"email_ccs,omitempty"`
+}
+
+func (c *Client) GetTicketsWithQuery(ctx context.Context, q SearchQuery) ([]Ticket, error) {
+	var allTickets []Ticket
+	currentPage := &TicketSearchResp{}
+
+	if err := c.searchRequest(ctx, TicketSearchType, q, &currentPage); err != nil {
+		return nil, fmt.Errorf("an error occured getting the tickets: %w", err)
+	}
+
+	allTickets = append(allTickets, currentPage.Tickets...)
+
+	for currentPage.NextPage != "" {
+		nextPage := &TicketSearchResp{}
+		if err := c.apiRequest(ctx, "GET", currentPage.NextPage, nil, &nextPage); err != nil {
+			return nil, fmt.Errorf("an error occured getting next page of tickets: %w", err)
+		}
+
+		allTickets = append(allTickets, nextPage.Tickets...)
+		currentPage = nextPage
+	}
+
+	slog.Debug("returning tickets", "totalTickets", len(allTickets))
+	return allTickets, nil
 }
 
 func (c *Client) GetTicket(ctx context.Context, ticketId int64) (*Ticket, error) {

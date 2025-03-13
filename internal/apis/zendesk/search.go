@@ -11,7 +11,7 @@ import (
 
 type SearchQuery struct {
 	Tags                  []string
-	TicketsOrganizationId int
+	TicketsOrganizationId int64
 	TicketCreatedAfter    time.Time
 	TicketCreatedBefore   time.Time
 }
