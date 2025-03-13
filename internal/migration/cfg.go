@@ -113,15 +113,17 @@ func (cfg *Config) ValidateAndPrompt() error {
 	}
 
 	if err := cfg.validateZendeskTags(); err != nil {
-		if err := cfg.runZendeskTagsForm(); err != nil {
-			return fmt.Errorf("error running zendesk tags form: %w", err)
-		}
+		return fmt.Errorf("error validating zendesk tags: %w", err)
 	}
 
 	if err := cfg.validateConnectwiseCustomField(); err != nil {
 		if err := cfg.runConnectwiseFieldForm(); err != nil {
 			return fmt.Errorf("error validating connectwise custom fields: %w", err)
 		}
+	}
+
+	if err := viper.WriteConfig(); err != nil {
+		return fmt.Errorf("writing config file: %w", err)
 	}
 
 	return nil
@@ -132,16 +134,24 @@ func (cfg *Config) PromptAllFields() error {
 		slog.Error("error running creds form", "error", err)
 	}
 
-	if err := cfg.runZendeskTagsForm(); err != nil {
-		slog.Error("error running tags form", "error", err)
-	}
-
 	if err := cfg.runZendeskDateForm(); err != nil {
 		slog.Error("error running date form", "error", err)
 	}
 
+	if err := cfg.runZendeskTagsForm(); err != nil {
+		slog.Error("error running tags form", "error", err)
+	}
+
+	if err := cfg.runAllTagDateForms(); err != nil {
+		slog.Error("error running tag date forms", "error", err)
+	}
+
 	if err := cfg.runConnectwiseFieldForm(); err != nil {
 		slog.Error("error running field form", "error", err)
+	}
+
+	if err := viper.WriteConfig(); err != nil {
+		return fmt.Errorf("writing config file: %w", err)
 	}
 
 	return nil
@@ -185,10 +195,6 @@ func (cfg *Config) runCredsForm() error {
 
 	viper.Set("zendesk.api_creds", cfg.Zendesk.Creds)
 	viper.Set("connectwise_psa.api_creds", cfg.CW.Creds)
-	if err := viper.WriteConfig(); err != nil {
-		slog.Error("error writing config file", "error", err)
-		return fmt.Errorf("writing config file: %w", err)
-	}
 
 	return nil
 }
@@ -284,10 +290,6 @@ func (cfg *Config) runZendeskDateForm() error {
 	viper.Set("zendesk.start_date", cfg.Zendesk.MasterStartDate)
 	viper.Set("zendesk.end_date", cfg.Zendesk.MasterEndDate)
 
-	if err := viper.WriteConfig(); err != nil {
-		return fmt.Errorf("writing config file: %w", err)
-	}
-
 	return nil
 }
 
@@ -354,9 +356,6 @@ func (cfg *Config) runConnectwiseFieldForm() error {
 	}
 
 	viper.Set("connectwise_psa.field_ids.zendesk_ticket_id", i)
-	if err := viper.WriteConfig(); err != nil {
-		return fmt.Errorf("writing config file: %w", err)
-	}
 
 	return nil
 }
@@ -386,10 +385,6 @@ func (c *Client) processZendeskPsaForms(ctx context.Context) error {
 	c.Cfg.Zendesk.FieldIds.PsaCompanyId = cf.Id
 	viper.Set("zendesk.field_ids.psa_contact_id", uf.Id)
 	viper.Set("zendesk.field_ids.psa_company_id", cf.Id)
-	if err := viper.WriteConfig(); err != nil {
-		slog.Error("writing zendesk psa fields to config", "error", err)
-		return fmt.Errorf("writing zendesk psa fields to config: %w", err)
-	}
 	slog.Debug("CheckZendeskPSAFields", "userField", c.Cfg.Zendesk.FieldIds.PsaContactId, "orgField", c.Cfg.Zendesk.FieldIds.PsaCompanyId)
 	return nil
 }
@@ -426,10 +421,6 @@ func (c *Client) runBoardForm(ctx context.Context) error {
 
 	c.Cfg.CW.DestinationBoardId = boardsMap[s]
 	viper.Set("connectwise_psa.destination_board_id", boardsMap[s])
-	if err := viper.WriteConfig(); err != nil {
-		return fmt.Errorf("writing config file: %w", err)
-	}
-
 	return nil
 }
 
@@ -478,10 +469,6 @@ func (c *Client) runBoardStatusForm(ctx context.Context, boardId int) error {
 	viper.Set("connectwise_psa.open_status_id", statusMap[op])
 	viper.Set("connectwise_psa.closed_status_id", statusMap[cl])
 
-	if err := viper.WriteConfig(); err != nil {
-		return fmt.Errorf("writing config file: %w", err)
-	}
-
 	return nil
 }
 
@@ -505,6 +492,11 @@ func requiredInput(s string) error {
 
 // Validator for required huh Input fields
 func validDateString(s string) error {
+	if s == "" {
+		// blank is okay, it means no cutoff
+		return nil
+	}
+
 	date, err := ConvertStringToTime(s)
 	if err != nil {
 		slog.Warn("error converting date string", "error", err)

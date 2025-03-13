@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/apis/psa"
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/apis/zendesk"
+	"github.com/spf13/viper"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -63,6 +64,10 @@ func RunStartup(ctx context.Context) (*Client, error) {
 		if err := client.runBoardStatusForm(ctx, cfg.CW.DestinationBoardId); err != nil {
 			return nil, fmt.Errorf("running board status form: %w", err)
 		}
+	}
+
+	if err := viper.WriteConfig(); err != nil {
+		return nil, fmt.Errorf("writing config file: %w", err)
 	}
 
 	return client, nil

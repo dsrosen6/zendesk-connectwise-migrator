@@ -77,16 +77,36 @@ func contains(d []TagDetails, tagName string) bool {
 }
 
 func (cfg *Config) validateTagDates(tag *TagDetails) error {
+	valid := true
+
 	if err := validDateString(tag.StartDate); err != nil {
 		tag.StartDate = ""
-		slog.Warn("invalid zendesk start date string", "tag", tag.Name)
-		return fmt.Errorf("invalid zendesk start date string for tag %s", tag.Name)
+		slog.Warn("invalid zendesk start date string - replaced with blank string", "tag", tag.Name)
+		valid = false
 	}
 
 	if err := validDateString(tag.EndDate); err != nil {
 		tag.StartDate = ""
-		slog.Warn("invalid zendesk end date string", "tag", tag.Name)
-		return fmt.Errorf("invalid zendesk end date string for tag %s", tag.Name)
+		slog.Warn("invalid zendesk end date string - replaced with blank string", "tag", tag.Name)
+		valid = false
+	}
+
+	if !valid {
+		return fmt.Errorf("invalid date(s) for tag %s", tag.Name)
+	}
+
+	return nil
+}
+
+func (cfg *Config) runAllTagDateForms() error {
+	for _, tag := range cfg.Zendesk.TagsToMigrate {
+
+		// run validateTagDates but don't return an error if it is invalid (we want to run the form anyway)
+		// if it is invalid it will still replace the date(s) with blank strings
+		_ = cfg.validateTagDates(&tag)
+		if err := cfg.runZendeskTagDateForm(&tag); err != nil {
+			return fmt.Errorf("error running tag date form for tag %s: %w", tag.Name, err)
+		}
 	}
 
 	return nil
@@ -115,11 +135,14 @@ func (cfg *Config) runZendeskTagDateForm(tag *TagDetails) error {
 		return fmt.Errorf("error running date form: %w", err)
 	}
 
-	viper.Set("zendesk.tags_to_migrate", cfg.Zendesk.TagsToMigrate)
-
-	if err := viper.WriteConfig(); err != nil {
-		return fmt.Errorf("writing config file: %w", err)
+	for i, t := range cfg.Zendesk.TagsToMigrate {
+		if t.Name == tag.Name {
+			cfg.Zendesk.TagsToMigrate[i] = *tag
+			break
+		}
 	}
+
+	viper.Set("zendesk.tags_to_migrate", cfg.Zendesk.TagsToMigrate)
 
 	return nil
 }
