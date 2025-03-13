@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
@@ -32,6 +33,8 @@ type ZdCfg struct {
 	Creds         zendesk.Creds `mapstructure:"api_creds" json:"api_creds"`
 	TagsToMigrate []string      `mapstructure:"tags_to_migrate" json:"tags_to_migrate"`
 	FieldIds      ZdFieldIds    `mapstructure:"field_ids" json:"field_ids"`
+	StartDate     string        `mapstructure:"start_date" json:"start_date"`
+	EndDate       string        `mapstructure:"end_date" json:"end_date"`
 }
 
 type CwCfg struct {
@@ -106,7 +109,13 @@ func (cfg *Config) ValidateAndPrompt() error {
 
 	if err := cfg.validateZendeskTags(); err != nil {
 		if err := cfg.runZendeskTagsForm(); err != nil {
-			return fmt.Errorf("error validating zendesk tags: %w", err)
+			return fmt.Errorf("error running zendesk tags form: %w", err)
+		}
+	}
+
+	if err := cfg.validateZendeskDates(); err != nil {
+		if err := cfg.runZendeskDateForm(); err != nil {
+			return fmt.Errorf("error running zendesk dates form: %w", err)
 		}
 	}
 
@@ -126,6 +135,10 @@ func (cfg *Config) PromptAllFields() error {
 
 	if err := cfg.runZendeskTagsForm(); err != nil {
 		slog.Error("error running tags form", "error", err)
+	}
+
+	if err := cfg.runZendeskDateForm(); err != nil {
+		slog.Error("error running date form", "error", err)
 	}
 
 	if err := cfg.runConnectwiseFieldForm(); err != nil {
@@ -168,6 +181,23 @@ func (cfg *Config) validateZendeskTags() error {
 	if len(cfg.Zendesk.TagsToMigrate) == 0 {
 		slog.Warn("no tags selected to migrate")
 		return errors.New("no tags selected to migrate")
+	}
+
+	return nil
+}
+
+func (cfg *Config) validateZendeskDates() error {
+	if err := validDateString(cfg.Zendesk.StartDate); err != nil {
+		// Set value in config to empty so the bad value isn't shown in the form
+		cfg.Zendesk.StartDate = ""
+		slog.Warn("invalid zendesk start date string")
+		return errors.New("invalid zendesk start date string")
+	}
+
+	if err := validDateString(cfg.Zendesk.EndDate); err != nil {
+		cfg.Zendesk.EndDate = ""
+		slog.Warn("invalid zendesk end date string")
+		return errors.New("invalid zendesk end date string")
 	}
 
 	return nil
@@ -285,7 +315,7 @@ func (cfg *Config) credsForm() *huh.Form {
 func (cfg *Config) runZendeskTagsForm() error {
 	tagsString := strings.Join(cfg.Zendesk.TagsToMigrate, ",")
 	input := huh.NewInput().
-		Title("Enter Zendesk Tags to Migrate").
+		Title("Enter Zendesk tags to migrate").
 		Placeholder(tagsString).
 		Description("Separate tags by commas, and then press Enter").
 		Validate(requiredInput).
@@ -312,10 +342,42 @@ func (cfg *Config) runZendeskTagsForm() error {
 	return nil
 }
 
+func (cfg *Config) runZendeskDateForm() error {
+	form := huh.NewForm(
+		huh.NewGroup(
+			huh.NewInput().
+				Title("Begin date to look for Zendesk tickets").
+				Description("Use format YYYY-DD-MM (leave blank for no cutoff)").
+				Placeholder(cfg.Zendesk.StartDate).
+				Validate(validDateString).
+				Value(&cfg.Zendesk.StartDate),
+			huh.NewInput().
+				Title("End date to look for Zendesk tickets").
+				Description("Use format YYYY-DD-MM (leave blank for no cutoff)").
+				Placeholder(cfg.Zendesk.EndDate).
+				Validate(validDateString).
+				Value(&cfg.Zendesk.EndDate),
+		),
+	).WithShowHelp(false).WithTheme(huh.ThemeBase16())
+
+	if err := form.Run(); err != nil {
+		return fmt.Errorf("error running date form: %w", err)
+	}
+
+	viper.Set("zendesk.start_date", cfg.Zendesk.StartDate)
+	viper.Set("zendesk.end_date", cfg.Zendesk.EndDate)
+
+	if err := viper.WriteConfig(); err != nil {
+		return fmt.Errorf("writing config file: %w", err)
+	}
+
+	return nil
+}
+
 func (cfg *Config) runConnectwiseFieldForm() error {
 	s := strconv.Itoa(cfg.CW.FieldIds.ZendeskTicketId)
 	input := huh.NewInput().
-		Title("Enter ConnectWise PSA Custom Field ID").
+		Title("Enter ConnectWise PSA custom field ID").
 		Description("See docs if you have not made one.").
 		Placeholder(s).
 		Validate(requiredInput).
@@ -481,8 +543,34 @@ func requiredInput(s string) error {
 	return nil
 }
 
+// Validator for required huh Input fields
+func validDateString(s string) error {
+	if s == "" {
+		return nil
+	}
+
+	date, err := ConvertStringToTime(s)
+	if err != nil {
+		slog.Warn("error converting date string", "error", err)
+		return errors.New("not a valid date string")
+	}
+
+	slog.Debug("valid date string", "date", date)
+	return nil
+}
+
 func setCfgDefaults() {
 	slog.Debug("setting config defaults")
 	viper.SetDefault("zendesk", ZdCfg{})
 	viper.SetDefault("connectwise_psa", CwCfg{})
+}
+
+func ConvertStringToTime(date string) (time.Time, error) {
+	layout := "2006-01-02"
+	d, err := time.Parse(layout, date)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("converting time string to datetime format: %w", err)
+	}
+
+	return d, nil
 }

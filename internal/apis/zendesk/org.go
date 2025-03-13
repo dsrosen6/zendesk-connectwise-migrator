@@ -4,9 +4,15 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"net/url"
 	"time"
 )
+
+type OrgSearchResp struct {
+	Organizations []Organization `json:"results"`
+	NextPage      string         `json:"next_page"`
+	PreviousPage  string         `json:"previous_page"`
+	Count         int            `json:"count"`
+}
 
 type Organization struct {
 	Url                string             `json:"url"`
@@ -29,31 +35,30 @@ type OrganizationFields struct {
 	PSACompanyId int64 `json:"psa_company"`
 }
 
-func (c *Client) GetOrganizationsWithQuery(ctx context.Context, tags []string) ([]Organization, error) {
-	slog.Debug("zendesk.Client.GetOrganizationsWithQuery called", "tags", tags)
-	var q string
-	var r struct {
-		Organizations []Organization `json:"results"`
-	}
+func (c *Client) GetOrganizationsWithQuery(ctx context.Context, q SearchQuery) ([]Organization, error) {
+	slog.Debug("zendesk.Client.GetOrganizationsWithQuery called", "query", q)
 
-	var orgs []Organization
+	var allOrgs []Organization
+	currentPage := &OrgSearchResp{}
 
-	if len(tags) > 0 {
-		q = "type:organization"
-		for _, tag := range tags {
-			q += fmt.Sprintf(" tags:%s", tag)
-		}
-	}
-
-	q = url.QueryEscape(q)
-
-	if err := c.searchRequest(ctx, q, &r); err != nil {
+	if err := c.searchRequest(ctx, OrgSearchType, q, &currentPage); err != nil {
 		return nil, fmt.Errorf("an error occured getting the organizations: %w", err)
 	}
 
-	orgs = r.Organizations
+	allOrgs = append(allOrgs, currentPage.Organizations...)
 
-	return orgs, nil
+	for currentPage.NextPage != "" {
+		nextPage := &OrgSearchResp{}
+		if err := c.apiRequest(ctx, "GET", currentPage.NextPage, nil, &nextPage); err != nil {
+			return nil, fmt.Errorf("an error occured getting next page of organizations: %w", err)
+		}
+
+		allOrgs = append(allOrgs, nextPage.Organizations...)
+		currentPage = nextPage
+	}
+
+	slog.Debug("returning orgs", "totalOrgs", len(allOrgs))
+	return allOrgs, nil
 }
 
 func (c *Client) GetOrganization(ctx context.Context, orgId int64) (Organization, error) {

@@ -47,16 +47,6 @@ func (c *Client) ConnectionTest(ctx context.Context) error {
 	return nil
 }
 
-func (c *Client) searchRequest(ctx context.Context, query string, target interface{}) error {
-	slog.Debug("zendesk.Client.searchRequest called", "query", query)
-	u := fmt.Sprintf("%s/search.json?query=%s", c.baseUrl, query)
-	if err := c.apiRequest(ctx, "GET", u, nil, target); err != nil {
-		return fmt.Errorf("an error occured searching for the resource: %w", err)
-	}
-
-	return nil
-}
-
 func (c *Client) apiRequest(ctx context.Context, method, url string, body io.Reader, target interface{}) error {
 	slog.Debug("zendesk.Client.apiRequest called", "method", method, "url", url)
 	req, err := http.NewRequestWithContext(ctx, method, url, body)

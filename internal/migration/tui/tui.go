@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/migration"
 	"log/slog"
+	"time"
 )
 
 var (
@@ -91,4 +92,24 @@ func switchModel(sm tea.Model) tea.Cmd {
 
 func runSpinner(text string) string {
 	return fmt.Sprintf("%s %s\n", spnr.View(), text)
+}
+
+func convertDateStringsToTimeTime(start, end string) (time.Time, time.Time, error) {
+	var startDate, endDate time.Time
+	var err error
+	if start != "" {
+		startDate, err = migration.ConvertStringToTime(start)
+		if err != nil {
+			return time.Time{}, time.Time{}, fmt.Errorf("converting start date string to time.Time: %w", err)
+		}
+	}
+
+	if end != "" {
+		endDate, err = migration.ConvertStringToTime(end)
+		if err != nil {
+			return time.Time{}, time.Time{}, fmt.Errorf("converting end date string to time.Time: %w", err)
+		}
+	}
+
+	return startDate, endDate, nil
 }

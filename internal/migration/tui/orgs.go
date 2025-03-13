@@ -99,9 +99,13 @@ func (m *orgCheckerModel) View() string {
 func (m *orgCheckerModel) getOrgs() tea.Cmd {
 	slog.Debug("starting getOrgs")
 	return func() tea.Msg {
+		q := &zendesk.SearchQuery{}
 		tags := m.migrationClient.Cfg.Zendesk.TagsToMigrate
-		slog.Debug("tags to check", "tags", tags)
-		orgs, err := m.migrationClient.ZendeskClient.GetOrganizationsWithQuery(ctx, tags)
+		if len(tags) > 0 {
+			q.Tags = tags
+		}
+
+		orgs, err := m.migrationClient.ZendeskClient.GetOrganizationsWithQuery(ctx, *q)
 		if err != nil {
 			slog.Error("error getting orgs", "err", err)
 			return apiErrMsg{err}
