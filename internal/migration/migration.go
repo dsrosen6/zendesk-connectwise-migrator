@@ -44,7 +44,7 @@ func RunStartup(ctx context.Context) (*Client, error) {
 	client := newClient(cfg.Zendesk.Creds, cfg.CW.Creds, cfg)
 
 	if err := client.testConnection(ctx); err != nil {
-		return nil, fmt.Errorf("connection test: %w", err)
+		slog.Error("ConnectionTest: error", "error", err)
 	}
 
 	if err := client.Cfg.validateZendeskCustomFields(); err != nil {

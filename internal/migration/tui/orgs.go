@@ -44,6 +44,11 @@ func (m *orgCheckerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	)
 
 	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		if m.status == done {
+			return m, switchModel(newMainMenuModel(m.migrationClient))
+		}
+
 	case switchStatusMsg:
 		switch msg {
 		case switchStatusMsg(comparingOrgs):
@@ -52,6 +57,8 @@ func (m *orgCheckerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			for _, org := range m.orgs {
 				cmds = append(cmds, m.compareOrg(org))
 			}
+		case switchStatusMsg(done):
+			m.done = true
 		}
 	}
 
@@ -69,17 +76,21 @@ func (m *orgCheckerModel) View() string {
 	var s string
 	switch m.status {
 	case gettingZendeskOrgs:
-		s = "Getting Zendesk Orgs...\n\n"
+		s = runSpinner("Getting Zendesk orgs")
 	case comparingOrgs:
-		s = fmt.Sprintf("Comparing orgs...total checked: %d", m.totalChecked)
+		s = runSpinner(fmt.Sprintf("Comparing orgs...total checked: %d", m.totalChecked))
 	case done:
-		s = "Done checking\n\n"
+		s = "Done checking orgs\n\n"
 		if len(m.orgsNotInPsa) > 0 {
 			s += "Orgs not in PSA:\n\n"
 			for _, org := range m.orgsNotInPsa {
 				s += fmt.Sprintf("%s\n", org.Name)
 			}
+		} else {
+			s += "All orgs are in PSA."
 		}
+
+		s += "\n\nPress any key to return to the main menu (ctrl+c or esc to quit)"
 	}
 
 	return s
