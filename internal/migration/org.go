@@ -11,7 +11,7 @@ func (c *Client) MatchZdOrgToCwCompany(ctx context.Context, org zendesk.Organiza
 	slog.Debug("migration.MatchZdOrgToCwCompany called")
 	comp, err := c.CwClient.GetCompanyByName(ctx, org.Name)
 	if err != nil {
-		slog.Error("error getting company by name", "name", org.Name, "error", err)
+		slog.Debug("no psa org found", "zendeskOrg", org.Name)
 		return psa.Company{}, err
 	}
 

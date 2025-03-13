@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/dsrosen/zendesk-connectwise-migrator/internal/apis/psa"
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/apis/zendesk"
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/migration"
 	"log/slog"
@@ -10,6 +11,7 @@ import (
 )
 
 type orgCheckerModel struct {
+	tags            []tagDetails
 	orgs            allOrgs
 	migrationClient *migration.Client
 	status          status
@@ -17,17 +19,30 @@ type orgCheckerModel struct {
 	done            bool
 }
 
+type tagDetails struct {
+	name      string
+	startDate time.Time
+	endDate   time.Time
+}
+
 type allOrgs struct {
-	master      []zendesk.Organization
-	checked     []zendesk.Organization
-	withTickets []zendesk.Organization
-	inPsa       []zendesk.Organization
-	notInPsa    []zendesk.Organization
-	erroredOrgs []erroredOrg
+	master        []*orgMigrationDetails
+	checked       []*orgMigrationDetails
+	withTickets   []*orgMigrationDetails
+	inPsa         []*orgMigrationDetails
+	notInPsa      []*orgMigrationDetails
+	notInPsaNames string
+	erroredOrgs   []erroredOrg
+}
+
+type orgMigrationDetails struct {
+	tag        *tagDetails
+	zendeskOrg zendesk.Organization
+	psaOrg     psa.Company
 }
 
 type erroredOrg struct {
-	org zendesk.Organization
+	org *orgMigrationDetails
 	err error
 }
 
@@ -53,10 +68,6 @@ func (m *orgCheckerModel) Init() tea.Cmd {
 }
 
 func (m *orgCheckerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var (
-		cmds []tea.Cmd
-	)
-
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		if m.status == done {
@@ -68,9 +79,11 @@ func (m *orgCheckerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case switchStatusMsg(comparingOrgs):
 			slog.Debug("got orgs", "total", len(m.orgs.master))
 			m.status = comparingOrgs
+			var checkOrgCmds []tea.Cmd
 			for _, org := range m.orgs.master {
-				cmds = append(cmds, m.checkOrg(org))
+				checkOrgCmds = append(checkOrgCmds, m.checkOrg(org))
 			}
+			return m, tea.Sequence(checkOrgCmds...)
 		case switchStatusMsg(done):
 			m.done = true
 		}
@@ -83,11 +96,11 @@ func (m *orgCheckerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	return m, tea.Sequence(cmds...)
+	return m, nil
 }
 
 func (m *orgCheckerModel) View() string {
-	var st string
+	var s, st string
 	switch m.status {
 	case gettingZendeskOrgs:
 		st = runSpinner("Getting Zendesk orgs")
@@ -97,48 +110,83 @@ func (m *orgCheckerModel) View() string {
 		st = " Done checking orgs"
 	}
 
-	stats := fmt.Sprintf(" Checked: %d/%d\n With Tickets: %d\n In PSA: %d/%d\n",
+	s += st
+
+	s += fmt.Sprintf(" Checked: %d/%d\n With Tickets: %d\n In PSA/With Tickets: %d/%d\n",
 		len(m.orgs.checked), len(m.orgs.master), len(m.orgs.withTickets), len(m.orgs.inPsa), len(m.orgs.withTickets))
 
-	return fmt.Sprintf("%s\n\n%s", st, stats)
+	if m.orgs.notInPsaNames != "" {
+		s += fmt.Sprintf("\nZendesk Orgs not in PSA:\n%s\n", m.orgs.notInPsaNames)
+	}
+
+	return s
 }
 
+func (m *orgCheckerModel) getTagDetails(tags []migration.TagDetails) tea.Cmd {
+	return func() tea.Msg {
+		for _, tag := range tags {
+			tm := &timeConversionDetails{
+				startString:   tag.StartDate,
+				endString:     tag.EndDate,
+				startFallback: m.migrationClient.Cfg.Zendesk.MasterStartDate,
+				endFallback:   m.migrationClient.Cfg.Zendesk.MasterEndDate,
+			}
+
+			start, end, err := convertDateStringsToTimeTime(tm)
+			if err != nil {
+				return timeConvertErrMsg{err}
+			}
+
+			td := tagDetails{
+				name:      tag.Name,
+				startDate: start,
+				endDate:   end,
+			}
+
+			m.tags = append(m.tags, td)
+		}
+		return nil
+	}
+}
 func (m *orgCheckerModel) getOrgs() tea.Cmd {
 	slog.Debug("starting getOrgs")
 	return func() tea.Msg {
-		q := &zendesk.SearchQuery{}
-		tags := m.migrationClient.Cfg.Zendesk.TagsToMigrate
-		if len(tags) > 0 {
-			q.Tags = tags
-		}
+		for _, tag := range m.tags {
+			q := &zendesk.SearchQuery{}
+			q.Tags = []string{tag.name}
 
-		orgs, err := m.migrationClient.ZendeskClient.GetOrganizationsWithQuery(ctx, *q)
-		if err != nil {
-			slog.Error("error getting orgs", "err", err)
-			return apiErrMsg{err}
-		}
+			slog.Info("getting all orgs from zendesk for tag group", "tag", tag.name)
 
-		m.orgs.master = orgs
+			orgs, err := m.migrationClient.ZendeskClient.GetOrganizationsWithQuery(ctx, *q)
+			if err != nil {
+				slog.Error("error getting orgs", "err", err)
+				return apiErrMsg{err}
+			}
+
+			for _, org := range orgs {
+				md := &orgMigrationDetails{
+					zendeskOrg: org,
+					tag:        &tag,
+				}
+				m.orgs.master = append(m.orgs.master, md)
+			}
+		}
 		return switchStatusMsg(comparingOrgs)
 	}
 }
 
-func (m *orgCheckerModel) checkOrg(org zendesk.Organization) tea.Cmd {
+func (m *orgCheckerModel) checkOrg(org *orgMigrationDetails) tea.Cmd {
 	return func() tea.Msg {
 		q := &zendesk.SearchQuery{}
-		start, end, err := convertDateStringsToTimeTime(m.migrationClient.Cfg.Zendesk.StartDate, m.migrationClient.Cfg.Zendesk.EndDate)
-		if err != nil {
-			return timeConvertErrMsg{err}
-		}
-		if start != (time.Time{}) {
-			q.TicketCreatedAfter = start
+		if org.tag.startDate != (time.Time{}) {
+			q.TicketCreatedAfter = org.tag.startDate
 		}
 
-		if end != (time.Time{}) {
-			q.TicketCreatedBefore = end
+		if org.tag.endDate != (time.Time{}) {
+			q.TicketCreatedBefore = org.tag.endDate
 		}
 
-		q.TicketsOrganizationId = org.Id
+		q.TicketsOrganizationId = org.zendeskOrg.Id
 
 		tickets, err := m.migrationClient.ZendeskClient.GetTicketsWithQuery(ctx, *q)
 		if err != nil {
@@ -151,6 +199,7 @@ func (m *orgCheckerModel) checkOrg(org zendesk.Organization) tea.Cmd {
 				m.orgs.inPsa = append(m.orgs.inPsa, org)
 			} else {
 				m.orgs.notInPsa = append(m.orgs.inPsa)
+				m.orgs.notInPsaNames += fmt.Sprintf("%s\n", org.zendeskOrg.Name)
 			}
 		}
 
@@ -159,7 +208,7 @@ func (m *orgCheckerModel) checkOrg(org zendesk.Organization) tea.Cmd {
 	}
 }
 
-func (m *orgCheckerModel) orgInPsa(org zendesk.Organization) bool {
-	_, err := m.migrationClient.MatchZdOrgToCwCompany(ctx, org)
+func (m *orgCheckerModel) orgInPsa(org *orgMigrationDetails) bool {
+	_, err := m.migrationClient.MatchZdOrgToCwCompany(ctx, org.zendeskOrg)
 	return err == nil
 }

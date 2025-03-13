@@ -12,7 +12,6 @@ import (
 	"os"
 	"sort"
 	"strconv"
-	"strings"
 	"time"
 )
 
@@ -30,11 +29,11 @@ type Config struct {
 }
 
 type ZdCfg struct {
-	Creds         zendesk.Creds `mapstructure:"api_creds" json:"api_creds"`
-	TagsToMigrate []string      `mapstructure:"tags_to_migrate" json:"tags_to_migrate"`
-	FieldIds      ZdFieldIds    `mapstructure:"field_ids" json:"field_ids"`
-	StartDate     string        `mapstructure:"start_date" json:"start_date"`
-	EndDate       string        `mapstructure:"end_date" json:"end_date"`
+	Creds           zendesk.Creds `mapstructure:"api_creds" json:"api_creds"`
+	TagsToMigrate   []TagDetails  `mapstructure:"tags_to_migrate" json:"tags_to_migrate"`
+	FieldIds        ZdFieldIds    `mapstructure:"field_ids" json:"field_ids"`
+	MasterStartDate string        `mapstructure:"start_date" json:"start_date"`
+	MasterEndDate   string        `mapstructure:"end_date" json:"end_date"`
 }
 
 type CwCfg struct {
@@ -107,15 +106,15 @@ func (cfg *Config) ValidateAndPrompt() error {
 		}
 	}
 
-	if err := cfg.validateZendeskTags(); err != nil {
-		if err := cfg.runZendeskTagsForm(); err != nil {
-			return fmt.Errorf("error running zendesk tags form: %w", err)
-		}
-	}
-
 	if err := cfg.validateZendeskDates(); err != nil {
 		if err := cfg.runZendeskDateForm(); err != nil {
 			return fmt.Errorf("error running zendesk dates form: %w", err)
+		}
+	}
+
+	if err := cfg.validateZendeskTags(); err != nil {
+		if err := cfg.runZendeskTagsForm(); err != nil {
+			return fmt.Errorf("error running zendesk tags form: %w", err)
 		}
 	}
 
@@ -174,75 +173,6 @@ func (cfg *Config) validateCreds() error {
 		return errors.New("missing 1 or more required config values")
 	}
 
-	return nil
-}
-
-func (cfg *Config) validateZendeskTags() error {
-	if len(cfg.Zendesk.TagsToMigrate) == 0 {
-		slog.Warn("no tags selected to migrate")
-		return errors.New("no tags selected to migrate")
-	}
-
-	return nil
-}
-
-func (cfg *Config) validateZendeskDates() error {
-	if err := validDateString(cfg.Zendesk.StartDate); err != nil {
-		// Set value in config to empty so the bad value isn't shown in the form
-		cfg.Zendesk.StartDate = ""
-		slog.Warn("invalid zendesk start date string")
-		return errors.New("invalid zendesk start date string")
-	}
-
-	if err := validDateString(cfg.Zendesk.EndDate); err != nil {
-		cfg.Zendesk.EndDate = ""
-		slog.Warn("invalid zendesk end date string")
-		return errors.New("invalid zendesk end date string")
-	}
-
-	return nil
-}
-
-func (cfg *Config) validateConnectwiseCustomField() error {
-	if cfg.CW.FieldIds.ZendeskTicketId == 0 {
-		slog.Warn("no ConnectWise PSA custom field ID set")
-		return errors.New("no ConnectWise PSA custom field ID set")
-	}
-
-	slog.Debug("connectwise custom field id found in config", "zendeskTicketId", cfg.CW.FieldIds.ZendeskTicketId)
-	return nil
-}
-
-func (cfg *Config) validateZendeskCustomFields() error {
-	if cfg.Zendesk.FieldIds.PsaCompanyId == 0 || cfg.Zendesk.FieldIds.PsaContactId == 0 {
-		slog.Warn("no Zendesk custom field IDs set")
-		return errors.New("no Zendesk custom field IDs set")
-	}
-
-	slog.Debug("zendesk custom field ids in config",
-		"psaCompanyId", cfg.Zendesk.FieldIds.PsaContactId,
-		"psaContactId", cfg.Zendesk.FieldIds.PsaContactId,
-	)
-	return nil
-}
-
-func (cfg *Config) validateConnectwiseBoardId() error {
-	if cfg.CW.DestinationBoardId == 0 {
-		slog.Warn("no destination board ID set")
-		return errors.New("no destination board ID set")
-	}
-
-	slog.Debug("connectwise board id found in config", "boardId", cfg.CW.DestinationBoardId)
-	return nil
-}
-
-func (cfg *Config) validateConnectwiseStatuses() error {
-	if cfg.CW.OpenStatusId == 0 || cfg.CW.ClosedStatusId == 0 {
-		slog.Warn("no open status ID or closed status ID set")
-		return errors.New("no open status ID or closed status ID set")
-	}
-
-	slog.Debug("board status ids", "open", cfg.CW.OpenStatusId, "closed", cfg.CW.ClosedStatusId)
 	return nil
 }
 
@@ -312,31 +242,18 @@ func (cfg *Config) credsForm() *huh.Form {
 	).WithShowHelp(false).WithTheme(huh.ThemeBase16())
 }
 
-func (cfg *Config) runZendeskTagsForm() error {
-	tagsString := strings.Join(cfg.Zendesk.TagsToMigrate, ",")
-	input := huh.NewInput().
-		Title("Enter Zendesk tags to migrate").
-		Placeholder(tagsString).
-		Description("Separate tags by commas, and then press Enter").
-		Validate(requiredInput).
-		Value(&tagsString).
-		WithTheme(huh.ThemeBase16())
-
-	if err := input.Run(); err != nil {
-		return fmt.Errorf("running tag selection form: %w", err)
+func (cfg *Config) validateZendeskDates() error {
+	if err := validDateString(cfg.Zendesk.MasterStartDate); err != nil {
+		// Set value in config to empty so the bad value isn't shown in the form
+		cfg.Zendesk.MasterStartDate = ""
+		slog.Warn("invalid zendesk start date string")
+		return errors.New("invalid zendesk start date string")
 	}
 
-	// Split tags by comma, and then trim any whitespace from each tag
-	var tags []string
-
-	tags = strings.Split(tagsString, ",")
-	for i, tag := range tags {
-		tags[i] = strings.TrimSpace(tag)
-	}
-
-	viper.Set("zendesk.tags_to_migrate", tags)
-	if err := viper.WriteConfig(); err != nil {
-		return fmt.Errorf("writing config file: %w", err)
+	if err := validDateString(cfg.Zendesk.MasterEndDate); err != nil {
+		cfg.Zendesk.MasterEndDate = ""
+		slog.Warn("invalid zendesk end date string")
+		return errors.New("invalid zendesk end date string")
 	}
 
 	return nil
@@ -348,15 +265,15 @@ func (cfg *Config) runZendeskDateForm() error {
 			huh.NewInput().
 				Title("Begin date to look for Zendesk tickets").
 				Description("Use format YYYY-DD-MM (leave blank for no cutoff)").
-				Placeholder(cfg.Zendesk.StartDate).
+				Placeholder(cfg.Zendesk.MasterStartDate).
 				Validate(validDateString).
-				Value(&cfg.Zendesk.StartDate),
+				Value(&cfg.Zendesk.MasterStartDate),
 			huh.NewInput().
 				Title("End date to look for Zendesk tickets").
 				Description("Use format YYYY-DD-MM (leave blank for no cutoff)").
-				Placeholder(cfg.Zendesk.EndDate).
+				Placeholder(cfg.Zendesk.MasterEndDate).
 				Validate(validDateString).
-				Value(&cfg.Zendesk.EndDate),
+				Value(&cfg.Zendesk.MasterEndDate),
 		),
 	).WithShowHelp(false).WithTheme(huh.ThemeBase16())
 
@@ -364,13 +281,56 @@ func (cfg *Config) runZendeskDateForm() error {
 		return fmt.Errorf("error running date form: %w", err)
 	}
 
-	viper.Set("zendesk.start_date", cfg.Zendesk.StartDate)
-	viper.Set("zendesk.end_date", cfg.Zendesk.EndDate)
+	viper.Set("zendesk.start_date", cfg.Zendesk.MasterStartDate)
+	viper.Set("zendesk.end_date", cfg.Zendesk.MasterEndDate)
 
 	if err := viper.WriteConfig(); err != nil {
 		return fmt.Errorf("writing config file: %w", err)
 	}
 
+	return nil
+}
+
+func (cfg *Config) validateConnectwiseCustomField() error {
+	if cfg.CW.FieldIds.ZendeskTicketId == 0 {
+		slog.Warn("no ConnectWise PSA custom field ID set")
+		return errors.New("no ConnectWise PSA custom field ID set")
+	}
+
+	slog.Debug("connectwise custom field id found in config", "zendeskTicketId", cfg.CW.FieldIds.ZendeskTicketId)
+	return nil
+}
+
+func (cfg *Config) validateZendeskCustomFields() error {
+	if cfg.Zendesk.FieldIds.PsaCompanyId == 0 || cfg.Zendesk.FieldIds.PsaContactId == 0 {
+		slog.Warn("no Zendesk custom field IDs set")
+		return errors.New("no Zendesk custom field IDs set")
+	}
+
+	slog.Debug("zendesk custom field ids in config",
+		"psaCompanyId", cfg.Zendesk.FieldIds.PsaContactId,
+		"psaContactId", cfg.Zendesk.FieldIds.PsaContactId,
+	)
+	return nil
+}
+
+func (cfg *Config) validateConnectwiseBoardId() error {
+	if cfg.CW.DestinationBoardId == 0 {
+		slog.Warn("no destination board ID set")
+		return errors.New("no destination board ID set")
+	}
+
+	slog.Debug("connectwise board id found in config", "boardId", cfg.CW.DestinationBoardId)
+	return nil
+}
+
+func (cfg *Config) validateConnectwiseStatuses() error {
+	if cfg.CW.OpenStatusId == 0 || cfg.CW.ClosedStatusId == 0 {
+		slog.Warn("no open status ID or closed status ID set")
+		return errors.New("no open status ID or closed status ID set")
+	}
+
+	slog.Debug("board status ids", "open", cfg.CW.OpenStatusId, "closed", cfg.CW.ClosedStatusId)
 	return nil
 }
 
@@ -545,10 +505,6 @@ func requiredInput(s string) error {
 
 // Validator for required huh Input fields
 func validDateString(s string) error {
-	if s == "" {
-		return nil
-	}
-
 	date, err := ConvertStringToTime(s)
 	if err != nil {
 		slog.Warn("error converting date string", "error", err)

@@ -20,6 +20,21 @@ type Model struct {
 	migrationClient *migration.Client
 	currentModel    tea.Model
 	quitting        bool
+	windowSize      windowSize
+}
+
+type windowSize struct {
+	width  int
+	height int
+}
+
+type timeConversionDetails struct {
+	startString string
+	endString   string
+
+	// fallback time strings, in case main entry is a blank string
+	startFallback string
+	endFallback   string
 }
 
 type switchModelMsg tea.Model
@@ -53,6 +68,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	)
 
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.windowSize.width = msg.Width
+		m.windowSize.height = msg.Height
+
 	case tea.KeyMsg:
 
 		switch msg.String() {
@@ -94,9 +113,20 @@ func runSpinner(text string) string {
 	return fmt.Sprintf("%s %s\n", spnr.View(), text)
 }
 
-func convertDateStringsToTimeTime(start, end string) (time.Time, time.Time, error) {
+func convertDateStringsToTimeTime(details *timeConversionDetails) (time.Time, time.Time, error) {
 	var startDate, endDate time.Time
 	var err error
+
+	start := details.startString
+	if start == "" {
+		start = details.startFallback
+	}
+
+	end := details.endString
+	if end == "" {
+		end = details.endFallback
+	}
+
 	if start != "" {
 		startDate, err = migration.ConvertStringToTime(start)
 		if err != nil {
