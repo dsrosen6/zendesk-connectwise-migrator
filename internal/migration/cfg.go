@@ -12,6 +12,7 @@ import (
 	"os"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -34,6 +35,9 @@ type ZdCfg struct {
 	FieldIds        ZdFieldIds    `mapstructure:"field_ids" json:"field_ids"`
 	MasterStartDate string        `mapstructure:"start_date" json:"start_date"`
 	MasterEndDate   string        `mapstructure:"end_date" json:"end_date"`
+	tempTagNames    []string
+	tempTagsString  string
+	wantTagDateForm bool
 }
 
 type CwCfg struct {
@@ -42,6 +46,7 @@ type CwCfg struct {
 	OpenStatusId       int        `mapstructure:"open_status_id" json:"open_status_id"`
 	DestinationBoardId int        `mapstructure:"destination_board_id" json:"destination_board_id"`
 	FieldIds           CwFieldIds `mapstructure:"field_ids" json:"field_ids"`
+	tempCwTagString    string
 }
 
 type ZdFieldIds struct {
@@ -99,241 +104,177 @@ func InitConfig() (*Config, error) {
 	return cfg, nil
 }
 
-func (cfg *Config) ValidateAndPrompt() error {
-	if err := cfg.validateCreds(); err != nil {
-		if err := cfg.runCredsForm(); err != nil {
-			return fmt.Errorf("error running creds form: %w", err)
+func (cfg *Config) RunForm() error {
+	if err := cfg.preProcessMainForm(); err != nil {
+		return fmt.Errorf("error pre processing config form: %w", err)
+	}
+
+	if err := cfg.mainForm().Run(); err != nil {
+		if errors.As(err, &huh.ErrUserAborted) {
+			os.Exit(0)
+		}
+		return fmt.Errorf("error running config form: %w", err)
+	}
+
+	if err := cfg.postProcessMainForm(); err != nil {
+		return fmt.Errorf("error post processing config form")
+	}
+
+	if cfg.Zendesk.wantTagDateForm {
+		if err := cfg.runZendeskTagDateForm(); err != nil {
+			return fmt.Errorf("error running tag date form: %w", err)
 		}
 	}
 
-	if err := cfg.validateZendeskDates(); err != nil {
-		if err := cfg.runZendeskDateForm(); err != nil {
-			return fmt.Errorf("error running zendesk dates form: %w", err)
-		}
-	}
-
-	if err := cfg.validateZendeskTags(); err != nil {
-		return fmt.Errorf("error validating zendesk tags: %w", err)
-	}
-
-	if err := cfg.validateConnectwiseCustomField(); err != nil {
-		if err := cfg.runConnectwiseFieldForm(); err != nil {
-			return fmt.Errorf("error validating connectwise custom fields: %w", err)
-		}
-	}
+	viper.Set("zendesk", cfg.Zendesk)
+	viper.Set("connectwise_psa", cfg.CW)
 
 	if err := viper.WriteConfig(); err != nil {
-		return fmt.Errorf("writing config file: %w", err)
+		return fmt.Errorf("error writing to config file: %w", err)
 	}
 
 	return nil
 }
 
-func (cfg *Config) PromptAllFields() error {
-	if err := cfg.runCredsForm(); err != nil {
-		slog.Error("error running creds form", "error", err)
+func (cfg *Config) preProcessMainForm() error {
+	// Prepare for cfg.tagEntryGroup
+	for _, tag := range cfg.Zendesk.TagsToMigrate {
+		cfg.Zendesk.tempTagNames = append(cfg.Zendesk.tempTagNames, tag.Name)
 	}
+	cfg.Zendesk.tempTagsString = strings.Join(cfg.Zendesk.tempTagNames, ",")
 
-	if err := cfg.runZendeskDateForm(); err != nil {
-		slog.Error("error running date form", "error", err)
-	}
+	// Prepare for cfg.connectwiseCustomFieldGroup
+	cfg.CW.tempCwTagString = strconv.Itoa(cfg.CW.FieldIds.ZendeskTicketId)
 
-	if err := cfg.runZendeskTagsForm(); err != nil {
-		slog.Error("error running tags form", "error", err)
-	}
-
-	if err := cfg.runAllTagDateForms(); err != nil {
-		slog.Error("error running tag date forms", "error", err)
-	}
-
-	if err := cfg.runConnectwiseFieldForm(); err != nil {
-		slog.Error("error running field form", "error", err)
-	}
-
-	if err := viper.WriteConfig(); err != nil {
-		return fmt.Errorf("writing config file: %w", err)
-	}
-
+	// Set wantTagDateForm to true
+	cfg.Zendesk.wantTagDateForm = true
 	return nil
 }
 
-func (cfg *Config) validateCreds() error {
-	slog.Debug("validating required fields")
-	var missing []string
-
-	requiredFields := map[string]string{
-		"zendesk.api_creds.token":               cfg.Zendesk.Creds.Token,
-		"zendesk.api_creds.username":            cfg.Zendesk.Creds.Username,
-		"zendesk.api_creds.subdomain":           cfg.Zendesk.Creds.Subdomain,
-		"connectwise_psa.api_creds.company_id":  cfg.CW.Creds.CompanyId,
-		"connectwise_psa.api_creds.public_key":  cfg.CW.Creds.PublicKey,
-		"connectwise_psa.api_creds.private_key": cfg.CW.Creds.PrivateKey,
-		"connectwise_psa.api_creds.client_id":   cfg.CW.Creds.ClientId,
-	}
-
-	for k, v := range requiredFields {
-		if v == "" {
-			slog.Warn("missing required config value", "key", k)
-			missing = append(missing, k)
+func (cfg *Config) postProcessMainForm() error {
+	// Post process from cfg.tagEntryGroup
+	cfg.Zendesk.tempTagNames = strings.Split(cfg.Zendesk.tempTagsString, ",")
+	for _, name := range cfg.Zendesk.tempTagNames {
+		if !tagContainsName(cfg.Zendesk.TagsToMigrate, name) {
+			cfg.Zendesk.TagsToMigrate = append(cfg.Zendesk.TagsToMigrate, TagDetails{Name: name})
 		}
 	}
 
-	if len(missing) > 0 {
-		slog.Error("missing required config values", "missing", missing)
-		return errors.New("missing 1 or more required config values")
+	var err error
+	cfg.CW.FieldIds.ZendeskTicketId, err = strToInt(cfg.CW.tempCwTagString)
+	if err != nil {
+		return fmt.Errorf("converting connectwise zendesk ticket id field to int: %w", err)
 	}
 
 	return nil
 }
 
-func (cfg *Config) runCredsForm() error {
-	if err := cfg.credsForm().Run(); err != nil {
-		slog.Error("error running creds form", "error", err)
-		return fmt.Errorf("running creds form: %w", err)
-	}
-	slog.Debug("creds form completed", "cfg", cfg)
-
-	viper.Set("zendesk.api_creds", cfg.Zendesk.Creds)
-	viper.Set("connectwise_psa.api_creds", cfg.CW.Creds)
-
-	return nil
-}
-
-func (cfg *Config) credsForm() *huh.Form {
+func (cfg *Config) mainForm() *huh.Form {
 	return huh.NewForm(
-		huh.NewGroup(
-			huh.NewInput().
-				Title("Zendesk Token").
-				Placeholder(cfg.Zendesk.Creds.Token).
-				Validate(requiredInput).
-				Inline(true).
-				Value(&cfg.Zendesk.Creds.Token),
-			huh.NewInput().
-				Title("Zendesk Username").
-				Placeholder(cfg.Zendesk.Creds.Username).
-				Validate(requiredInput).
-				Inline(true).
-				Value(&cfg.Zendesk.Creds.Username),
-			huh.NewInput().
-				Title("Zendesk Subdomain").
-				Placeholder(cfg.Zendesk.Creds.Subdomain).
-				Validate(requiredInput).
-				Inline(true).
-				Value(&cfg.Zendesk.Creds.Subdomain),
-			huh.NewInput().
-				Title("ConnectWise Company ID").
-				Placeholder(cfg.CW.Creds.CompanyId).
-				Validate(requiredInput).
-				Inline(true).
-				Value(&cfg.CW.Creds.CompanyId),
-			huh.NewInput().
-				Title("ConnectWise Public Key").
-				Placeholder(cfg.CW.Creds.PublicKey).
-				Validate(requiredInput).
-				Inline(true).
-				Value(&cfg.CW.Creds.PublicKey),
-			huh.NewInput().
-				Title("ConnectWise Private Key").
-				Placeholder(cfg.CW.Creds.PrivateKey).
-				Validate(requiredInput).
-				Inline(true).
-				Value(&cfg.CW.Creds.PrivateKey),
-			huh.NewInput().
-				Title("ConnectWise Client ID").
-				Placeholder(cfg.CW.Creds.ClientId).
-				Validate(requiredInput).
-				Inline(true).
-				Value(&cfg.CW.Creds.ClientId),
-		),
-	).WithShowHelp(false).WithTheme(huh.ThemeBase16())
+		cfg.credsGroup(),
+		cfg.connectwiseCustomFieldGroup(),
+		cfg.tagEntryGroup(),
+		cfg.masterDateGroup(),
+		cfg.tagDateWarningGroup(),
+	).WithShowHelp(false).WithKeyMap(customKeyMap()).WithTheme(CustomHuhTheme())
 }
 
-func (cfg *Config) validateZendeskDates() error {
-	if err := validDateString(cfg.Zendesk.MasterStartDate); err != nil {
-		// Set value in config to empty so the bad value isn't shown in the form
-		cfg.Zendesk.MasterStartDate = ""
-		slog.Warn("invalid zendesk start date string")
-		return errors.New("invalid zendesk start date string")
-	}
-
-	if err := validDateString(cfg.Zendesk.MasterEndDate); err != nil {
-		cfg.Zendesk.MasterEndDate = ""
-		slog.Warn("invalid zendesk end date string")
-		return errors.New("invalid zendesk end date string")
-	}
-
-	return nil
-}
-
-func (cfg *Config) runZendeskDateForm() error {
-	form := huh.NewForm(
-		huh.NewGroup(
-			huh.NewInput().
-				Title("Begin date to look for Zendesk tickets").
-				Description("Use format YYYY-DD-MM (leave blank for no cutoff)").
-				Placeholder(cfg.Zendesk.MasterStartDate).
-				Validate(validDateString).
-				Value(&cfg.Zendesk.MasterStartDate),
-			huh.NewInput().
-				Title("End date to look for Zendesk tickets").
-				Description("Use format YYYY-DD-MM (leave blank for no cutoff)").
-				Placeholder(cfg.Zendesk.MasterEndDate).
-				Validate(validDateString).
-				Value(&cfg.Zendesk.MasterEndDate),
-		),
-	).WithShowHelp(false).WithTheme(huh.ThemeBase16())
-
-	if err := form.Run(); err != nil {
-		return fmt.Errorf("error running date form: %w", err)
-	}
-
-	viper.Set("zendesk.start_date", cfg.Zendesk.MasterStartDate)
-	viper.Set("zendesk.end_date", cfg.Zendesk.MasterEndDate)
-
-	return nil
-}
-
-func (cfg *Config) validateConnectwiseCustomField() error {
-	if cfg.CW.FieldIds.ZendeskTicketId == 0 {
-		slog.Warn("no ConnectWise PSA custom field ID set")
-		return errors.New("no ConnectWise PSA custom field ID set")
-	}
-
-	slog.Debug("connectwise custom field id found in config", "zendeskTicketId", cfg.CW.FieldIds.ZendeskTicketId)
-	return nil
-}
-
-func (cfg *Config) validateZendeskCustomFields() error {
-	if cfg.Zendesk.FieldIds.PsaCompanyId == 0 || cfg.Zendesk.FieldIds.PsaContactId == 0 {
-		slog.Warn("no Zendesk custom field IDs set")
-		return errors.New("no Zendesk custom field IDs set")
-	}
-
-	slog.Debug("zendesk custom field ids in config",
-		"psaCompanyId", cfg.Zendesk.FieldIds.PsaContactId,
-		"psaContactId", cfg.Zendesk.FieldIds.PsaContactId,
+func (cfg *Config) credsGroup() *huh.Group {
+	return huh.NewGroup(
+		huh.NewInput().
+			Title("Zendesk Token").
+			Placeholder(cfg.Zendesk.Creds.Token).
+			Validate(requiredInput).
+			Inline(true).
+			Value(&cfg.Zendesk.Creds.Token),
+		huh.NewInput().
+			Title("Zendesk Username").
+			Placeholder(cfg.Zendesk.Creds.Username).
+			Validate(requiredInput).
+			Inline(true).
+			Value(&cfg.Zendesk.Creds.Username),
+		huh.NewInput().
+			Title("Zendesk Subdomain").
+			Placeholder(cfg.Zendesk.Creds.Subdomain).
+			Validate(requiredInput).
+			Inline(true).
+			Value(&cfg.Zendesk.Creds.Subdomain),
+		huh.NewInput().
+			Title("ConnectWise Company ID").
+			Placeholder(cfg.CW.Creds.CompanyId).
+			Validate(requiredInput).
+			Inline(true).
+			Value(&cfg.CW.Creds.CompanyId),
+		huh.NewInput().
+			Title("ConnectWise Public Key").
+			Placeholder(cfg.CW.Creds.PublicKey).
+			Validate(requiredInput).
+			Inline(true).
+			Value(&cfg.CW.Creds.PublicKey),
+		huh.NewInput().
+			Title("ConnectWise Private Key").
+			Placeholder(cfg.CW.Creds.PrivateKey).
+			Validate(requiredInput).
+			Inline(true).
+			Value(&cfg.CW.Creds.PrivateKey),
+		huh.NewInput().
+			Title("ConnectWise Client ID").
+			Placeholder(cfg.CW.Creds.ClientId).
+			Validate(requiredInput).
+			Inline(true).
+			Value(&cfg.CW.Creds.ClientId),
 	)
-	return nil
 }
 
-func (cfg *Config) validateConnectwiseBoardId() error {
-	if cfg.CW.DestinationBoardId == 0 {
-		slog.Warn("no destination board ID set")
-		return errors.New("no destination board ID set")
-	}
-
-	slog.Debug("connectwise board id found in config", "boardId", cfg.CW.DestinationBoardId)
-	return nil
+func (cfg *Config) masterDateGroup() *huh.Group {
+	return huh.NewGroup(
+		huh.NewInput().
+			Title("Begin date to look for Zendesk tickets").
+			Description("Use format YYYY-DD-MM (leave blank for no cutoff)").
+			Placeholder(cfg.Zendesk.MasterStartDate).
+			Validate(validDateString).
+			Value(&cfg.Zendesk.MasterStartDate),
+		huh.NewInput().
+			Title("End date to look for Zendesk tickets").
+			Description("Use format YYYY-DD-MM (leave blank for no cutoff)").
+			Placeholder(cfg.Zendesk.MasterEndDate).
+			Validate(validDateString).
+			Value(&cfg.Zendesk.MasterEndDate),
+	)
 }
 
-func (cfg *Config) validateConnectwiseStatuses() error {
-	if cfg.CW.OpenStatusId == 0 || cfg.CW.ClosedStatusId == 0 {
-		slog.Warn("no open status ID or closed status ID set")
-		return errors.New("no open status ID or closed status ID set")
-	}
+func (cfg *Config) tagEntryGroup() *huh.Group {
+	return huh.NewGroup(
+		huh.NewInput().
+			Title("Enter Zendesk tags to migrate").
+			Placeholder(cfg.Zendesk.tempTagsString).
+			Description("Separate tags by commas, and then press Enter").
+			Validate(requiredInput).
+			Value(&cfg.Zendesk.tempTagsString),
+	)
+}
 
-	slog.Debug("board status ids", "open", cfg.CW.OpenStatusId, "closed", cfg.CW.ClosedStatusId)
-	return nil
+func (cfg *Config) tagDateWarningGroup() *huh.Group {
+	return huh.NewGroup(
+		huh.NewSelect[bool]().
+			Title("Should your tags to have different cutoff dates than the master dates?").
+			Options(
+				huh.NewOption("Yes", true),
+				huh.NewOption("No", false),
+			).
+			Value(&cfg.Zendesk.wantTagDateForm),
+	)
+}
+
+func (cfg *Config) connectwiseCustomFieldGroup() *huh.Group {
+	return huh.NewGroup(
+		huh.NewInput().
+			Title("Enter ConnectWise PSA custom field ID").
+			Description("See docs if you have not made one.").
+			Placeholder(cfg.CW.tempCwTagString).
+			Validate(requiredInput).
+			Value(&cfg.CW.tempCwTagString),
+	)
 }
 
 func (cfg *Config) runConnectwiseFieldForm() error {
@@ -344,7 +285,7 @@ func (cfg *Config) runConnectwiseFieldForm() error {
 		Placeholder(s).
 		Validate(requiredInput).
 		Value(&s).
-		WithTheme(huh.ThemeBase16())
+		WithTheme(CustomHuhTheme())
 
 	if err := input.Run(); err != nil {
 		return fmt.Errorf("running custom field form: %w", err)
@@ -405,13 +346,16 @@ func (c *Client) runBoardForm(ctx context.Context) error {
 
 	sort.Strings(boardNames)
 	var s string
-	input := huh.NewSelect[string]().
-		Title("Choose destination ConnectWise PSA board").
-		Options(huh.NewOptions(boardNames...)...).
-		Value(&s).
-		WithTheme(huh.ThemeBase16())
+	form := huh.NewForm(
+		huh.NewGroup(
+			huh.NewSelect[string]().
+				Title("Choose destination ConnectWise PSA board").
+				Options(huh.NewOptions(boardNames...)...).
+				Value(&s),
+		),
+	).WithShowHelp(false).WithKeyMap(customKeyMap()).WithTheme(CustomHuhTheme())
 
-	if err := input.Run(); err != nil {
+	if err := form.Run(); err != nil {
 		return fmt.Errorf("running board form: %w", err)
 	}
 
@@ -420,7 +364,12 @@ func (c *Client) runBoardForm(ctx context.Context) error {
 	}
 
 	c.Cfg.CW.DestinationBoardId = boardsMap[s]
+
 	viper.Set("connectwise_psa.destination_board_id", boardsMap[s])
+	if err := viper.WriteConfig(); err != nil {
+		return fmt.Errorf("writing config file: %w", err)
+	}
+
 	return nil
 }
 
@@ -450,7 +399,7 @@ func (c *Client) runBoardStatusForm(ctx context.Context, boardId int) error {
 				Title("Choose the Closed status for the chosen board").
 				Options(huh.NewOptions(statusNames...)...).
 				Value(&cl)),
-	).WithShowHelp(false).WithTheme(huh.ThemeBase16())
+	).WithShowHelp(false).WithKeyMap(customKeyMap()).WithTheme(CustomHuhTheme())
 
 	if err := form.Run(); err != nil {
 		return fmt.Errorf("running board status form: %w", err)
@@ -466,8 +415,12 @@ func (c *Client) runBoardStatusForm(ctx context.Context, boardId int) error {
 
 	c.Cfg.CW.OpenStatusId = statusMap[op]
 	c.Cfg.CW.OpenStatusId = statusMap[cl]
+
 	viper.Set("connectwise_psa.open_status_id", statusMap[op])
 	viper.Set("connectwise_psa.closed_status_id", statusMap[cl])
+	if err := viper.WriteConfig(); err != nil {
+		return fmt.Errorf("writing config file: %w", err)
+	}
 
 	return nil
 }

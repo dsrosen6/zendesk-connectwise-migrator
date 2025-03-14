@@ -37,39 +37,21 @@ func RunStartup(ctx context.Context) (*Client, error) {
 		return nil, fmt.Errorf("failed to initialize config: %w", err)
 	}
 
-	if err := cfg.ValidateAndPrompt(); err != nil {
+	if err := cfg.PreClientValidate(); err != nil {
 		return nil, fmt.Errorf("validating and prompt config: %w", err)
 	}
 	slog.Info("Config Validated")
 
 	client := newClient(cfg.Zendesk.Creds, cfg.CW.Creds, cfg)
 
-	if err := client.testConnection(ctx); err != nil {
-		slog.Error("ConnectionTest: error", "error", err)
+	if err := client.PostClientValidate(ctx); err != nil {
+		return nil, fmt.Errorf("validating after client creation: %w", err)
 	}
 
-	if err := client.Cfg.validateZendeskCustomFields(); err != nil {
-		if err := client.processZendeskPsaForms(ctx); err != nil {
-			return nil, fmt.Errorf("getting zendesk fields: %w", err)
-		}
-	}
-
-	if err := client.Cfg.validateConnectwiseBoardId(); err != nil {
-		if err := client.runBoardForm(ctx); err != nil {
-			return nil, fmt.Errorf("running board form: %w", err)
-		}
-	}
-
-	if err := client.Cfg.validateConnectwiseStatuses(); err != nil {
-		if err := client.runBoardStatusForm(ctx, cfg.CW.DestinationBoardId); err != nil {
-			return nil, fmt.Errorf("running board status form: %w", err)
-		}
-	}
-
+	slog.Debug("config details", "config", cfg)
 	if err := viper.WriteConfig(); err != nil {
 		return nil, fmt.Errorf("writing config file: %w", err)
 	}
-
 	return client, nil
 }
 

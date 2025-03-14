@@ -71,7 +71,7 @@ var cfgCmd = &cobra.Command{
 			return fmt.Errorf("initializing config: %w", err)
 		}
 
-		if err := cfg.PromptAllFields(); err != nil {
+		if err := cfg.RunForm(); err != nil {
 			return fmt.Errorf("prompting fields: %w", err)
 		}
 

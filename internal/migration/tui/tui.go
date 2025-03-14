@@ -4,12 +4,10 @@ import (
 	"context"
 	"fmt"
 	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/migration"
 	"log/slog"
-	"strings"
 	"time"
 )
 
@@ -34,8 +32,13 @@ type Model struct {
 	migrationClient *migration.Client
 	currentModel    tea.Model
 	quitting        bool
-	viewport        viewport.Model
 	ready           bool
+	dimensions
+}
+
+type dimensions struct {
+	width  int
+	height int
 }
 
 type timeConversionDetails struct {
@@ -79,19 +82,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		headerHeight := lipgloss.Height(m.headerView())
-		footerHeight := lipgloss.Height(m.footerView())
-		verticalMarginHeight := headerHeight + footerHeight
-
-		if !m.ready {
-			m.viewport = viewport.New(msg.Width, msg.Height-verticalMarginHeight)
-			m.viewport.YPosition = headerHeight
-			m.viewport.SetContent(m.currentModel.View())
-			m.ready = true
-		} else {
-			m.viewport.Width = msg.Width
-			m.viewport.Height = msg.Height - verticalMarginHeight
-		}
+		m.width = msg.Width
+		m.height = msg.Height
+		m.ready = true
 
 	case tea.KeyMsg:
 
@@ -113,10 +106,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m.currentModel, cmd = m.currentModel.Update(msg)
 	cmds = append(cmds, cmd)
 
-	m.viewport.SetContent(m.currentModel.View())
-	m.viewport, cmd = m.viewport.Update(msg)
-	cmds = append(cmds, cmd)
-
 	return m, tea.Batch(cmds...)
 }
 
@@ -129,7 +118,22 @@ func (m Model) View() string {
 		return runSpinner("Initializing...")
 	}
 
-	return fmt.Sprintf("%s\n%s\n%s", m.headerView(), m.viewport.View(), m.footerView())
+	header := lipgloss.NewStyle().
+		Align(lipgloss.Center).
+		Width(m.width).
+		Border(lipgloss.NormalBorder(), false, false, true, false).
+		Render("Ticket Migration Utility")
+	footer := lipgloss.NewStyle().
+		Align(lipgloss.Center).
+		Width(m.width).
+		Render("")
+	content := lipgloss.NewStyle().
+		Width(m.width).
+		Height(m.height-lipgloss.Height(header)-lipgloss.Height(footer)).
+		Align(lipgloss.Center, lipgloss.Top).
+		Render(m.currentModel.View())
+
+	return lipgloss.JoinVertical(lipgloss.Top, header, content, footer)
 }
 
 func switchModel(sm tea.Model) tea.Cmd {
@@ -171,22 +175,4 @@ func convertDateStringsToTimeTime(details *timeConversionDetails) (time.Time, ti
 	}
 
 	return startDate, endDate, nil
-}
-
-func (m Model) headerView() string {
-	line := strings.Repeat("─", maxSize(0, m.viewport.Width))
-	return lipgloss.JoinHorizontal(lipgloss.Center, line)
-}
-
-func (m Model) footerView() string {
-	info := infoStyle.Render(fmt.Sprintf("%3.f%%", m.viewport.ScrollPercent()*100))
-	line := strings.Repeat("─", maxSize(0, m.viewport.Width-lipgloss.Width(info)))
-	return lipgloss.JoinHorizontal(lipgloss.Center, line, info)
-}
-
-func maxSize(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }

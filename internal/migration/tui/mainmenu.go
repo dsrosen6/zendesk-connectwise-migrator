@@ -4,6 +4,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/migration"
+	"log/slog"
 )
 
 type mainMenuModel struct {
@@ -42,6 +43,7 @@ func (m *mainMenuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		choice := m.form.GetString(mainMenuChoice)
 		switch choice {
 		case orgChecker:
+			slog.Debug("switching to org checker model")
 			cmds = append(cmds, switchModel(newOrgCheckerModel(m.migrationClient)))
 		}
 	}
@@ -57,10 +59,9 @@ func mainMenuForm() *huh.Form {
 	return huh.NewForm(
 		huh.NewGroup(
 			huh.NewSelect[string]().
-				Title("Pick an option").
 				Options(
 					huh.NewOption("Org Checker", orgChecker),
 				).
 				Key(mainMenuChoice),
-		)).WithTheme(huh.ThemeBase())
+		)).WithShowHelp(false).WithTheme(migration.CustomHuhTheme())
 }

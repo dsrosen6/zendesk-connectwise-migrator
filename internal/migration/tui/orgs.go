@@ -137,6 +137,7 @@ func (m *orgCheckerModel) View() string {
 
 func (m *orgCheckerModel) getTagDetails(tags []migration.TagDetails) tea.Cmd {
 	return func() tea.Msg {
+		slog.Debug("starting getTagDetails", "tags", tags)
 		for _, tag := range tags {
 			tm := &timeConversionDetails{
 				startString:   tag.StartDate,
@@ -157,6 +158,7 @@ func (m *orgCheckerModel) getTagDetails(tags []migration.TagDetails) tea.Cmd {
 			}
 
 			m.tags = append(m.tags, td)
+			slog.Debug("appended tag", "tag", td.name)
 		}
 		return switchStatusMsg(gettingZendeskOrgs)
 	}
