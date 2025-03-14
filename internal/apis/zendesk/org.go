@@ -42,6 +42,7 @@ func (c *Client) GetOrganizationsWithQuery(ctx context.Context, q SearchQuery) (
 	currentPage := &OrgSearchResp{}
 
 	if err := c.searchRequest(ctx, OrgSearchType, q, &currentPage); err != nil {
+		slog.Error("error getting organizations with query", "error", err)
 		return nil, fmt.Errorf("an error occured getting the organizations: %w", err)
 	}
 

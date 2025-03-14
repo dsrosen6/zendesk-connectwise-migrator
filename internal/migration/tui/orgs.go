@@ -51,6 +51,7 @@ type switchStatusMsg string
 type status string
 
 const (
+	gettingTags        status = "gettingTags"
 	gettingZendeskOrgs status = "gettingZendeskOrgs"
 	comparingOrgs      status = "comparingOrgs"
 	done               status = "done"
@@ -64,7 +65,7 @@ func newOrgCheckerModel(mc *migration.Client) *orgCheckerModel {
 }
 
 func (m *orgCheckerModel) Init() tea.Cmd {
-	return m.getOrgs()
+	return m.getTagDetails(m.migrationClient.Cfg.Zendesk.TagsToMigrate)
 }
 
 func (m *orgCheckerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -76,6 +77,11 @@ func (m *orgCheckerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case switchStatusMsg:
 		switch msg {
+		case switchStatusMsg(gettingZendeskOrgs):
+			slog.Debug("got tags", "tags", m.tags)
+			m.status = gettingZendeskOrgs
+			return m, m.getOrgs()
+
 		case switchStatusMsg(comparingOrgs):
 			slog.Debug("got orgs", "total", len(m.orgs.master))
 			m.status = comparingOrgs
@@ -84,6 +90,7 @@ func (m *orgCheckerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				checkOrgCmds = append(checkOrgCmds, m.checkOrg(org))
 			}
 			return m, tea.Sequence(checkOrgCmds...)
+
 		case switchStatusMsg(done):
 			m.done = true
 		}
@@ -102,6 +109,8 @@ func (m *orgCheckerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *orgCheckerModel) View() string {
 	var s, st string
 	switch m.status {
+	case gettingTags:
+		st = runSpinner("Getting Zendesk tags")
 	case gettingZendeskOrgs:
 		st = runSpinner("Getting Zendesk orgs")
 	case comparingOrgs:
@@ -112,8 +121,8 @@ func (m *orgCheckerModel) View() string {
 
 	s += st
 
-	s += fmt.Sprintf(" Checked: %d/%d\n With Tickets: %d\n In PSA/With Tickets: %d/%d\n",
-		len(m.orgs.checked), len(m.orgs.master), len(m.orgs.withTickets), len(m.orgs.inPsa), len(m.orgs.withTickets))
+	s += fmt.Sprintf(" Checked: %d/%d\n With Tickets: %d\n In PSA/With Tickets: %d/%d\n Errored: %d\n",
+		len(m.orgs.checked), len(m.orgs.master), len(m.orgs.withTickets), len(m.orgs.inPsa), len(m.orgs.withTickets), len(m.orgs.erroredOrgs))
 
 	if m.orgs.notInPsaNames != "" {
 		s += fmt.Sprintf("\nZendesk Orgs not in PSA:\n%s\n", m.orgs.notInPsaNames)
@@ -145,13 +154,16 @@ func (m *orgCheckerModel) getTagDetails(tags []migration.TagDetails) tea.Cmd {
 
 			m.tags = append(m.tags, td)
 		}
-		return nil
+		return switchStatusMsg(gettingZendeskOrgs)
 	}
 }
+
 func (m *orgCheckerModel) getOrgs() tea.Cmd {
 	slog.Debug("starting getOrgs")
 	return func() tea.Msg {
+		slog.Debug("getting orgs for tags", "tags", m.migrationClient.Cfg.Zendesk.TagsToMigrate)
 		for _, tag := range m.tags {
+			slog.Debug("getting orgs for tag", "tag", tag.name)
 			q := &zendesk.SearchQuery{}
 			q.Tags = []string{tag.name}
 
@@ -188,7 +200,7 @@ func (m *orgCheckerModel) checkOrg(org *orgMigrationDetails) tea.Cmd {
 
 		q.TicketsOrganizationId = org.zendeskOrg.Id
 
-		tickets, err := m.migrationClient.ZendeskClient.GetTicketsWithQuery(ctx, *q)
+		tickets, err := m.migrationClient.ZendeskClient.GetTicketsWithQuery(ctx, *q, 20, true)
 		if err != nil {
 			m.orgs.erroredOrgs = append(m.orgs.erroredOrgs, erroredOrg{org: org, err: err})
 		}

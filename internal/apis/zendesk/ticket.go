@@ -9,10 +9,9 @@ import (
 )
 
 type TicketSearchResp struct {
-	Tickets      []Ticket `json:"results"`
-	NextPage     string   `json:"next_page"`
-	PreviousPage string   `json:"previous_page"`
-	Count        int      `json:"count"`
+	Tickets []Ticket `json:"results"`
+	Meta    Meta     `json:"meta"`
+	Links   Links    `json:"links"`
 }
 
 type TicketResp struct {
@@ -102,19 +101,26 @@ type To struct {
 	EmailCcs []int64 `json:"email_ccs,omitempty"`
 }
 
-func (c *Client) GetTicketsWithQuery(ctx context.Context, q SearchQuery) ([]Ticket, error) {
+func (c *Client) GetTicketsWithQuery(ctx context.Context, q SearchQuery, pageSize int, justGetOne bool) ([]Ticket, error) {
+	slog.Debug("zendesk.Client.GetTicketsWithQuery called", "query", q)
 	var allTickets []Ticket
 	currentPage := &TicketSearchResp{}
 
-	if err := c.searchRequest(ctx, TicketSearchType, q, &currentPage); err != nil {
+	if err := c.exportSearchRequest(ctx, TicketSearchType, q, pageSize, &currentPage); err != nil {
+		slog.Error("error getting tickets with query", "error", err)
 		return nil, fmt.Errorf("an error occured getting the tickets: %w", err)
 	}
 
 	allTickets = append(allTickets, currentPage.Tickets...)
 
-	for currentPage.NextPage != "" {
+	// used to only return one page - for checking presence of at least one ticket
+	if justGetOne {
+		return allTickets, nil
+	}
+
+	for currentPage.Meta.HasMore {
 		nextPage := &TicketSearchResp{}
-		if err := c.apiRequest(ctx, "GET", currentPage.NextPage, nil, &nextPage); err != nil {
+		if err := c.apiRequest(ctx, "GET", currentPage.Links.Next, nil, &nextPage); err != nil {
 			return nil, fmt.Errorf("an error occured getting next page of tickets: %w", err)
 		}
 
@@ -122,7 +128,6 @@ func (c *Client) GetTicketsWithQuery(ctx context.Context, q SearchQuery) ([]Tick
 		currentPage = nextPage
 	}
 
-	slog.Debug("returning tickets", "totalTickets", len(allTickets))
 	return allTickets, nil
 }
 
