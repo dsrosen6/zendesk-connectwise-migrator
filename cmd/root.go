@@ -53,7 +53,7 @@ var runCmd = &cobra.Command{
 			return fmt.Errorf("running startup: %w", err)
 		}
 
-		p := tea.NewProgram(tui.NewModel(ctx, client), tea.WithAltScreen())
+		p := tea.NewProgram(tui.NewModel(ctx, client), tea.WithAltScreen(), tea.WithMouseCellMotion())
 		if _, err := p.Run(); err != nil {
 			return fmt.Errorf("an error occured launching the terminal interface: %w", err)
 		}

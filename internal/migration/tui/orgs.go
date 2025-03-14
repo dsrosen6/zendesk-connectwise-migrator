@@ -7,6 +7,7 @@ import (
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/apis/zendesk"
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/migration"
 	"log/slog"
+	"slices"
 	"time"
 )
 
@@ -31,7 +32,7 @@ type allOrgs struct {
 	withTickets   []*orgMigrationDetails
 	inPsa         []*orgMigrationDetails
 	notInPsa      []*orgMigrationDetails
-	notInPsaNames string
+	notInPsaNames []string
 	erroredOrgs   []erroredOrg
 }
 
@@ -121,11 +122,14 @@ func (m *orgCheckerModel) View() string {
 
 	s += st
 
-	s += fmt.Sprintf(" Checked: %d/%d\n With Tickets: %d\n In PSA/With Tickets: %d/%d\n Errored: %d\n",
+	s += fmt.Sprintf("\n Checked: %d/%d\n With Tickets: %d\n In PSA/With Tickets: %d/%d\n Errored: %d\n",
 		len(m.orgs.checked), len(m.orgs.master), len(m.orgs.withTickets), len(m.orgs.inPsa), len(m.orgs.withTickets), len(m.orgs.erroredOrgs))
 
-	if m.orgs.notInPsaNames != "" {
-		s += fmt.Sprintf("\nZendesk Orgs not in PSA:\n%s\n", m.orgs.notInPsaNames)
+	if len(m.orgs.notInPsaNames) > 0 {
+		s += fmt.Sprintf("\nZendesk Orgs not in PSA:\n\n")
+		for _, name := range m.orgs.notInPsaNames {
+			s += fmt.Sprintf(" %s\n", name)
+		}
 	}
 
 	return s
@@ -211,11 +215,14 @@ func (m *orgCheckerModel) checkOrg(org *orgMigrationDetails) tea.Cmd {
 				m.orgs.inPsa = append(m.orgs.inPsa, org)
 			} else {
 				m.orgs.notInPsa = append(m.orgs.inPsa)
-				m.orgs.notInPsaNames += fmt.Sprintf("%s\n", org.zendeskOrg.Name)
+				m.orgs.notInPsaNames = append(m.orgs.notInPsaNames, org.zendeskOrg.Name)
+				slices.Sort(m.orgs.notInPsaNames)
 			}
 		}
 
 		m.orgs.checked = append(m.orgs.checked, org)
+		// TODO: rate limit for list tickets is 100 per minute - this is a bandaid, need error handling in main api function
+		time.Sleep(1 * time.Second)
 		return nil
 	}
 }
