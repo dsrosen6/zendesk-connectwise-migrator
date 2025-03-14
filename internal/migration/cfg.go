@@ -129,6 +129,7 @@ func (cfg *Config) RunForm() error {
 	viper.Set("zendesk", cfg.Zendesk)
 	viper.Set("connectwise_psa", cfg.CW)
 
+	slog.Debug("writing config", "config", cfg)
 	if err := viper.WriteConfig(); err != nil {
 		return fmt.Errorf("error writing to config file: %w", err)
 	}
@@ -153,17 +154,31 @@ func (cfg *Config) preProcessMainForm() error {
 
 func (cfg *Config) postProcessMainForm() error {
 	// Post process from cfg.tagEntryGroup
+	var updatedTags []TagDetails
 	cfg.Zendesk.tempTagNames = strings.Split(cfg.Zendesk.tempTagsString, ",")
-	for _, name := range cfg.Zendesk.tempTagNames {
-		if !tagContainsName(cfg.Zendesk.TagsToMigrate, name) {
-			cfg.Zendesk.TagsToMigrate = append(cfg.Zendesk.TagsToMigrate, TagDetails{Name: name})
+	for _, tagName := range cfg.Zendesk.tempTagNames {
+		if existingTag := findTagByName(cfg.Zendesk.TagsToMigrate, strings.TrimSpace(tagName)); existingTag != nil {
+			slog.Debug("tag already exists", "tag", existingTag.Name)
+			updatedTags = append(updatedTags, *existingTag)
+		} else {
+			slog.Debug("adding new tag", "tag", tagName)
+			updatedTags = append(updatedTags, TagDetails{Name: strings.TrimSpace(tagName)})
 		}
 	}
+
+	cfg.Zendesk.TagsToMigrate = updatedTags
+	viper.Set("zendesk.tags_to_migrate", cfg.Zendesk.TagsToMigrate)
 
 	var err error
 	cfg.CW.FieldIds.ZendeskTicketId, err = strToInt(cfg.CW.tempCwTagString)
 	if err != nil {
 		return fmt.Errorf("converting connectwise zendesk ticket id field to int: %w", err)
+	}
+
+	viper.Set("connectwise_psa.field_ids.zendesk_ticket_id", cfg.CW.FieldIds.ZendeskTicketId)
+
+	if err := viper.WriteConfig(); err != nil {
+		return fmt.Errorf("writing config file: %w", err)
 	}
 
 	return nil

@@ -4,28 +4,18 @@ import (
 	"context"
 	"fmt"
 	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/migration"
 	"log/slog"
+	"strings"
 	"time"
 )
 
 var (
 	ctx  context.Context
 	spnr spinner.Model
-
-	titleStyle = func() lipgloss.Style {
-		b := lipgloss.RoundedBorder()
-		b.Right = "├"
-		return lipgloss.NewStyle().BorderStyle(b).Padding(0, 1)
-	}()
-
-	infoStyle = func() lipgloss.Style {
-		b := lipgloss.RoundedBorder()
-		b.Left = "┤"
-		return titleStyle.BorderStyle(b)
-	}()
 )
 
 type Model struct {
@@ -34,11 +24,15 @@ type Model struct {
 	quitting        bool
 	ready           bool
 	dimensions
+	viewport      viewport.Model
+	viewportTitle string
+	viewportBody  string
 }
 
 type dimensions struct {
-	width  int
-	height int
+	windowWidth             int
+	windowHeight            int
+	verticalLeftForMainView int
 }
 
 type timeConversionDetails struct {
@@ -82,9 +76,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
-		m.ready = true
+		m.windowWidth = msg.Width
+		m.windowHeight = msg.Height
+		mainHeaderHeight := lipgloss.Height(m.appHeader())
+		mainFooterHeight := lipgloss.Height(m.appFooter())
+		viewportDvdrHeight := lipgloss.Height(m.viewportDivider())
+		verticalMarginHeight := mainHeaderHeight + mainFooterHeight + viewportDvdrHeight
+
+		if !m.ready {
+			m.viewport = viewport.New(msg.Width, (msg.Height-verticalMarginHeight)*2/3)
+			m.verticalLeftForMainView = m.windowHeight - verticalMarginHeight - m.viewport.Height
+			m.viewport.SetContent(m.viewportBody)
+			m.ready = true
+		} else {
+			m.viewport.Width = msg.Width
+			m.viewport.Height = (msg.Height - verticalMarginHeight) * 2 / 3
+			m.viewport.SetContent(m.viewportBody)
+		}
 
 	case tea.KeyMsg:
 
@@ -98,12 +106,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		slog.Debug("got switchModelCmd", "model", msg)
 		m.currentModel = msg
 		cmds = append(cmds, m.currentModel.Init())
+
+	case updateViewportMsg:
+		m.viewportTitle = msg.title
+		m.viewportBody = msg.body
 	}
 
 	spnr, cmd = spnr.Update(msg)
 	cmds = append(cmds, cmd)
 
 	m.currentModel, cmd = m.currentModel.Update(msg)
+	cmds = append(cmds, cmd)
+
+	m.viewport.SetContent(m.viewportBody)
+	m.viewport, cmd = m.viewport.Update(msg)
 	cmds = append(cmds, cmd)
 
 	return m, tea.Batch(cmds...)
@@ -118,22 +134,12 @@ func (m Model) View() string {
 		return runSpinner("Initializing...")
 	}
 
-	header := lipgloss.NewStyle().
-		Align(lipgloss.Center).
-		Width(m.width).
-		Border(lipgloss.NormalBorder(), false, false, true, false).
-		Render("Ticket Migration Utility")
-	footer := lipgloss.NewStyle().
-		Align(lipgloss.Center).
-		Width(m.width).
-		Render("")
-	content := lipgloss.NewStyle().
-		Width(m.width).
-		Height(m.height-lipgloss.Height(header)-lipgloss.Height(footer)).
-		Align(lipgloss.Center, lipgloss.Top).
+	mainView := lipgloss.NewStyle().
+		Width(m.windowWidth).
+		Height(m.verticalLeftForMainView).
 		Render(m.currentModel.View())
 
-	return lipgloss.JoinVertical(lipgloss.Top, header, content, footer)
+	return lipgloss.JoinVertical(lipgloss.Top, m.appHeader(), mainView, m.viewportDivider(), m.viewport.View(), m.appFooter())
 }
 
 func switchModel(sm tea.Model) tea.Cmd {
@@ -175,4 +181,37 @@ func convertDateStringsToTimeTime(details *timeConversionDetails) (time.Time, ti
 	}
 
 	return startDate, endDate, nil
+}
+
+func (m Model) appHeader() string {
+	return lipgloss.NewStyle().
+		Align(lipgloss.Center).
+		PaddingTop(1).
+		Width(m.windowWidth).
+		Border(lipgloss.NormalBorder(), false, false, true, false).
+		Render("Ticket Migration Utility")
+}
+
+func (m Model) viewportDivider() string {
+	return lipgloss.NewStyle().
+		Align(lipgloss.Center).
+		Width(m.windowWidth).
+		Border(lipgloss.NormalBorder(), false, false, true, false).
+		Render(m.viewportTitle)
+}
+
+func (m Model) appFooter() string {
+	return line(m.windowWidth)
+}
+
+func line(w int) string {
+	line := strings.Repeat("─", maxRepeats(0, w))
+	return line
+}
+
+func maxRepeats(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }

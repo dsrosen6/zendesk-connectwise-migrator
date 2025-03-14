@@ -6,51 +6,12 @@ import (
 	"github.com/charmbracelet/huh"
 	"github.com/spf13/viper"
 	"os"
-	"strings"
 )
 
 type TagDetails struct {
 	Name      string `mapstructure:"name" json:"name"`
 	StartDate string `mapstructure:"start_date" json:"start_date"`
 	EndDate   string `mapstructure:"end_date" json:"end_date"`
-}
-
-func (cfg *Config) runZendeskTagsForm() error {
-	var tagNames []string
-	for _, tag := range cfg.Zendesk.TagsToMigrate {
-		tagNames = append(tagNames, tag.Name)
-	}
-
-	tagsString := strings.Join(tagNames, ",")
-
-	form := huh.NewForm(
-		huh.NewGroup(
-			huh.NewInput().
-				Title("Enter Zendesk tags to migrate").
-				Placeholder(tagsString).
-				Description("Separate tags by commas, and then press Enter").
-				Validate(requiredInput).
-				Value(&tagsString),
-		),
-	).WithShowHelp(false).WithKeyMap(customKeyMap()).WithTheme(CustomHuhTheme())
-
-	if err := form.Run(); err != nil {
-		return fmt.Errorf("running tag selection form: %w", err)
-	}
-
-	tagNames = strings.Split(tagsString, ",")
-	for _, tagName := range tagNames {
-		if !tagContainsName(cfg.Zendesk.TagsToMigrate, tagName) {
-			cfg.Zendesk.TagsToMigrate = append(cfg.Zendesk.TagsToMigrate, TagDetails{Name: tagName})
-		}
-	}
-
-	viper.Set("zendesk.tags_to_migrate", cfg.Zendesk.TagsToMigrate)
-	if err := viper.WriteConfig(); err != nil {
-		return fmt.Errorf("writing config file: %w", err)
-	}
-
-	return nil
 }
 
 func (cfg *Config) runZendeskTagDateForm() error {
@@ -92,11 +53,11 @@ func (cfg *Config) runZendeskTagDateForm() error {
 	return nil
 }
 
-func tagContainsName(d []TagDetails, tagName string) bool {
-	for _, tag := range d {
-		if tag.Name == tagName {
-			return true
+func findTagByName(tags []TagDetails, name string) *TagDetails {
+	for _, tag := range tags {
+		if tag.Name == name {
+			return &tag
 		}
 	}
-	return false
+	return nil
 }

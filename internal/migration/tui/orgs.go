@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/apis/psa"
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/apis/zendesk"
@@ -18,6 +19,8 @@ type orgCheckerModel struct {
 	status          status
 	orgsNotInPsa    []zendesk.Organization
 	done            bool
+	viewport        viewport.Model
+	resultsString   string
 }
 
 type tagDetails struct {
@@ -72,7 +75,7 @@ func (m *orgCheckerModel) Init() tea.Cmd {
 func (m *orgCheckerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		if m.status == done {
+		if m.status == done && msg.String() == "m" {
 			return m, switchModel(newMainMenuModel(m.migrationClient))
 		}
 
@@ -97,6 +100,21 @@ func (m *orgCheckerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	var (
+		cmd  tea.Cmd
+		cmds []tea.Cmd
+	)
+
+	if len(m.orgs.notInPsaNames) > 0 {
+		var r string
+		for _, name := range m.orgs.notInPsaNames {
+			r += fmt.Sprintf(" %s\n", name)
+		}
+		m.resultsString = r
+		cmd = sendResultsCmd("Orgs Not in PSA", m.resultsString)
+		cmds = append(cmds, cmd)
+	}
+
 	if m.status == comparingOrgs && !m.done {
 		if len(m.orgs.master) == len(m.orgs.checked) {
 			slog.Debug("done")
@@ -104,7 +122,7 @@ func (m *orgCheckerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	return m, nil
+	return m, tea.Batch(cmds...)
 }
 
 func (m *orgCheckerModel) View() string {
@@ -117,20 +135,13 @@ func (m *orgCheckerModel) View() string {
 	case comparingOrgs:
 		st = runSpinner("Checking orgs")
 	case done:
-		st = " Done checking orgs"
+		st = " Done checking orgs - press 'm' to return to the main menu"
 	}
 
 	s += st
 
 	s += fmt.Sprintf("\n Checked: %d/%d\n With Tickets: %d\n In PSA/With Tickets: %d/%d\n Errored: %d\n",
 		len(m.orgs.checked), len(m.orgs.master), len(m.orgs.withTickets), len(m.orgs.inPsa), len(m.orgs.withTickets), len(m.orgs.erroredOrgs))
-
-	if len(m.orgs.notInPsaNames) > 0 {
-		s += fmt.Sprintf("\nZendesk Orgs not in PSA:\n\n")
-		for _, name := range m.orgs.notInPsaNames {
-			s += fmt.Sprintf(" %s\n", name)
-		}
-	}
 
 	return s
 }
@@ -223,8 +234,6 @@ func (m *orgCheckerModel) checkOrg(org *orgMigrationDetails) tea.Cmd {
 		}
 
 		m.orgs.checked = append(m.orgs.checked, org)
-		// TODO: rate limit for list tickets is 100 per minute - this is a bandaid, need error handling in main api function
-		time.Sleep(1 * time.Second)
 		return nil
 	}
 }
