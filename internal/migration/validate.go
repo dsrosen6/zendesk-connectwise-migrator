@@ -54,7 +54,7 @@ func (c *Client) PostClientValidate(ctx context.Context) error {
 	}
 
 	if err := c.Cfg.validateConnectwiseStatuses(); err != nil {
-		if err := c.runBoardStatusForm(ctx, c.Cfg.CW.DestinationBoardId); err != nil {
+		if err := c.runBoardStatusForm(ctx, c.Cfg.Connectwise.DestinationBoardId); err != nil {
 			return fmt.Errorf("running board status form: %w", err)
 		}
 	}
@@ -70,10 +70,10 @@ func (cfg *Config) validateCreds() error {
 		"zendesk.api_creds.token":               cfg.Zendesk.Creds.Token,
 		"zendesk.api_creds.username":            cfg.Zendesk.Creds.Username,
 		"zendesk.api_creds.subdomain":           cfg.Zendesk.Creds.Subdomain,
-		"connectwise_psa.api_creds.company_id":  cfg.CW.Creds.CompanyId,
-		"connectwise_psa.api_creds.public_key":  cfg.CW.Creds.PublicKey,
-		"connectwise_psa.api_creds.private_key": cfg.CW.Creds.PrivateKey,
-		"connectwise_psa.api_creds.client_id":   cfg.CW.Creds.ClientId,
+		"connectwise_psa.api_creds.company_id":  cfg.Connectwise.Creds.CompanyId,
+		"connectwise_psa.api_creds.public_key":  cfg.Connectwise.Creds.PublicKey,
+		"connectwise_psa.api_creds.private_key": cfg.Connectwise.Creds.PrivateKey,
+		"connectwise_psa.api_creds.client_id":   cfg.Connectwise.Creds.ClientId,
 	}
 
 	for k, v := range requiredFields {
@@ -146,12 +146,12 @@ func (cfg *Config) validateTagDates(tag *TagDetails) error {
 }
 
 func (cfg *Config) validateConnectwiseCustomField() error {
-	if cfg.CW.FieldIds.ZendeskTicketId == 0 {
+	if cfg.Connectwise.FieldIds.ZendeskTicketId == 0 {
 		slog.Warn("no ConnectWise PSA custom field ID set")
 		return errors.New("no ConnectWise PSA custom field ID set")
 	}
 
-	slog.Debug("connectwise custom field id found in config", "zendeskTicketId", cfg.CW.FieldIds.ZendeskTicketId)
+	slog.Debug("connectwise custom field id found in config", "zendeskTicketId", cfg.Connectwise.FieldIds.ZendeskTicketId)
 	return nil
 }
 
@@ -169,21 +169,21 @@ func (cfg *Config) validateZendeskCustomFields() error {
 }
 
 func (cfg *Config) validateConnectwiseBoardId() error {
-	if cfg.CW.DestinationBoardId == 0 {
+	if cfg.Connectwise.DestinationBoardId == 0 {
 		slog.Warn("no destination board ID set")
 		return errors.New("no destination board ID set")
 	}
 
-	slog.Debug("connectwise board id found in config", "boardId", cfg.CW.DestinationBoardId)
+	slog.Debug("connectwise board id found in config", "boardId", cfg.Connectwise.DestinationBoardId)
 	return nil
 }
 
 func (cfg *Config) validateConnectwiseStatuses() error {
-	if cfg.CW.OpenStatusId == 0 || cfg.CW.ClosedStatusId == 0 {
+	if cfg.Connectwise.OpenStatusId == 0 || cfg.Connectwise.ClosedStatusId == 0 {
 		slog.Warn("no open status ID or closed status ID set")
 		return errors.New("no open status ID or closed status ID set")
 	}
 
-	slog.Debug("board status ids", "open", cfg.CW.OpenStatusId, "closed", cfg.CW.ClosedStatusId)
+	slog.Debug("board status ids", "open", cfg.Connectwise.OpenStatusId, "closed", cfg.Connectwise.ClosedStatusId)
 	return nil
 }

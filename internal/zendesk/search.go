@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/url"
 	"strings"
 	"time"
@@ -31,9 +30,8 @@ func (c *Client) exportSearchRequest(ctx context.Context, searchType SearchType,
 		return fmt.Errorf("building query string: %w", err)
 	}
 
-	slog.Debug("zendesk.Client.exportSearchRequest called", "query", query)
 	u := fmt.Sprintf("%s/search/export.json?filter[type]=%s&query=%s&page[size]=%d", c.baseUrl, searchType, queryString, pageSize)
-	if err := c.apiRequest(ctx, "GET", u, nil, target); err != nil {
+	if err := c.ApiRequest(ctx, "GET", u, nil, target); err != nil {
 		return fmt.Errorf("an error occured searching for the resource: %w", err)
 	}
 
@@ -46,9 +44,8 @@ func (c *Client) searchRequest(ctx context.Context, searchType SearchType, query
 		return fmt.Errorf("building query string: %w", err)
 	}
 
-	slog.Debug("zendesk.Client.searchRequest called", "query", query)
 	u := fmt.Sprintf("%s/search.json?query=%s&count=1000", c.baseUrl, queryString)
-	if err := c.apiRequest(ctx, "GET", u, nil, target); err != nil {
+	if err := c.ApiRequest(ctx, "GET", u, nil, target); err != nil {
 		return fmt.Errorf("an error occured searching for the resource: %w", err)
 	}
 

@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"time"
 )
 
@@ -60,7 +59,6 @@ type UserFields struct {
 }
 
 func (c *Client) UpdateUser(ctx context.Context, user *User) error {
-	slog.Debug("UpdateUser called")
 	url := fmt.Sprintf("%s/users/%d", c.baseUrl, user.User.Id)
 
 	jsonBytes, err := json.Marshal(user)
@@ -70,18 +68,17 @@ func (c *Client) UpdateUser(ctx context.Context, user *User) error {
 
 	body := bytes.NewReader(jsonBytes)
 
-	if err := c.apiRequest(ctx, "PUT", url, body, nil); err != nil {
+	if err := c.ApiRequest(ctx, "PUT", url, body, nil); err != nil {
 		return fmt.Errorf("an error occured updating the user: %w", err)
 	}
 
 	return nil
 }
 func (c *Client) GetUser(ctx context.Context, userId int64) (User, error) {
-	slog.Debug("zendesk.Client.GetUser called", "userId", userId)
 	url := fmt.Sprintf("%s/users/%d", c.baseUrl, userId)
 	u := &User{}
 
-	if err := c.apiRequest(ctx, "GET", url, nil, &u); err != nil {
+	if err := c.ApiRequest(ctx, "GET", url, nil, &u); err != nil {
 		return User{}, fmt.Errorf("an error occured getting the user: %w", err)
 	}
 

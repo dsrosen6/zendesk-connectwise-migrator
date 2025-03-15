@@ -28,7 +28,6 @@ type Creds struct {
 }
 
 func NewClient(creds Creds, httpClient *http.Client) *Client {
-	slog.Debug("zendesk.NewClient called")
 	creds.Username = fmt.Sprintf("%s/token", creds.Username)
 	return &Client{
 		creds:      creds,
@@ -38,20 +37,27 @@ func NewClient(creds Creds, httpClient *http.Client) *Client {
 }
 
 func (c *Client) ConnectionTest(ctx context.Context) error {
-	slog.Debug("zendesk.Client.ConnectionTest called")
 	url := fmt.Sprintf("%s/users?page[size]=1", c.baseUrl)
 
 	u := &Users{}
-	if err := c.apiRequest(ctx, "GET", url, nil, &u); err != nil {
+	if err := c.ApiRequest(ctx, "GET", url, nil, &u); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (c *Client) apiRequest(ctx context.Context, method, url string, body io.Reader, target interface{}) error {
-	slog.Debug("zendesk.Client.apiRequest called", "method", method, "url", url)
+// ApiRequest is a wrapper for apiRequest, meant for more streamlined error logging.
+func (c *Client) ApiRequest(ctx context.Context, method, url string, body io.Reader, target interface{}) error {
+	if err := c.apiRequest(ctx, method, url, body, target); err != nil {
+		slog.Warn("Connectwise API Error", "error", err)
+		return fmt.Errorf("running ConnectWise PSA API request: %w", err)
+	}
 
+	return nil
+}
+
+func (c *Client) apiRequest(ctx context.Context, method, url string, body io.Reader, target interface{}) error {
 	const maxRetries = 3
 	var retryAfter int
 
@@ -103,7 +109,10 @@ func (c *Client) apiRequest(ctx context.Context, method, url string, body io.Rea
 			slog.Warn("zendesk API request failed", "statusCode", res.StatusCode)
 		}
 
-		res.Body.Close()
+		err = res.Body.Close()
+		if err != nil {
+			return err
+		}
 		time.Sleep(time.Duration(retryAfter) * time.Second)
 	}
 

@@ -28,7 +28,6 @@ type Creds struct {
 }
 
 func NewClient(creds Creds, httpClient *http.Client) *Client {
-	slog.Debug("psa.NewClient called")
 	username := fmt.Sprintf("%s+%s", creds.CompanyId, creds.PublicKey)
 
 	return &Client{
@@ -39,12 +38,21 @@ func NewClient(creds Creds, httpClient *http.Client) *Client {
 }
 
 func (c *Client) ConnectionTest(ctx context.Context) error {
-	slog.Debug("psa.ConnectionTest called")
 	url := fmt.Sprintf("%s/company/companies?pageSize=1", baseUrl)
 	co := CompaniesResp{}
 
-	if err := c.apiRequest(ctx, "GET", url, nil, &co); err != nil {
+	if err := c.ApiRequest(ctx, "GET", url, nil, &co); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+// ApiRequest is a wrapper for apiRequest, meant for more streamlined error logging.
+func (c *Client) ApiRequest(ctx context.Context, method, url string, body io.Reader, target interface{}) error {
+	if err := c.apiRequest(ctx, method, url, body, target); err != nil {
+		slog.Warn("Connectwise API Error", "error", err)
+		return fmt.Errorf("running ConnectWise PSA API request: %w", err)
 	}
 
 	return nil

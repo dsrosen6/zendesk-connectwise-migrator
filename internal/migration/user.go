@@ -3,30 +3,29 @@ package migration
 import (
 	"context"
 	"fmt"
-	"github.com/dsrosen/zendesk-connectwise-migrator/internal/apis/psa"
-	"github.com/dsrosen/zendesk-connectwise-migrator/internal/apis/zendesk"
+	"github.com/dsrosen/zendesk-connectwise-migrator/internal/psa"
+	"github.com/dsrosen/zendesk-connectwise-migrator/internal/zendesk"
 	"log/slog"
 	"strings"
 )
 
 func (c *Client) MigrateUser(ctx context.Context, zendeskUser zendesk.User, psaCompanyId int) (*psa.Contact, error) {
-	slog.Debug("migration.Client.MigrateUser called",
-		"zendeskUserId", zendeskUser.User.Id,
-		"psaCompanyId", psaCompanyId,
-		"psaContactId", zendeskUser.User.UserFields.PSAContactId)
-
 	// Check if the Zendesk user already has a PSA contact id value - if so, they've already been migrated by this tool
 	if zendeskUser.User.UserFields.PSAContactId != 0 {
-		slog.Info("MigrateUser: already migrated",
+		slog.Info("user already migrated",
 			"zendeskUserId", zendeskUser.User.Id,
 			"psaContactId", zendeskUser.User.UserFields.PSAContactId)
 		return nil, nil
 	}
 
+	slog.Info("user migration started",
+		"zendeskUserId", zendeskUser.User.Id,
+		"psaCompanyId", psaCompanyId,
+		"psaContactId", zendeskUser.User.UserFields.PSAContactId)
+
 	contact, err := c.CwClient.GetContactByEmail(ctx, zendeskUser.User.Email)
 	if err != nil {
-		slog.Error("MigrateUser: error", "action", "client.CwClient.GetContactByEmail", "error", err)
-		return nil, fmt.Errorf("error getting contact by email: %w", err)
+		return nil, fmt.Errorf("getting contact by email: %w", err)
 	}
 
 	var alreadyExisted bool
@@ -50,19 +49,18 @@ func (c *Client) MigrateUser(ctx context.Context, zendeskUser zendesk.User, psaC
 
 		contact, err = c.CwClient.PostContact(ctx, contact)
 		if err != nil {
-			slog.Error("MigrateUser: error", "action", "PostContact", "error", err)
-			return nil, fmt.Errorf("error creating new contact: %w", err)
+			return nil, fmt.Errorf("creating new contact: %w", err)
 		}
 
-		slog.Debug("MigrateUser: contact created in PSA", "contactId", contact.Id)
+		slog.Debug("contact created in PSA", "contactId", contact.Id)
 	}
 
 	zendeskUser.User.UserFields.PSAContactId = contact.Id
 	if err := c.ZendeskClient.UpdateUser(ctx, &zendeskUser); err != nil {
-		return nil, fmt.Errorf("error updating zendesk user with PSA contact id: %w", err)
+		return nil, fmt.Errorf("updating zendesk user with PSA contact id: %w", err)
 	}
 
-	slog.Info("MigrateUser: complete",
+	slog.Info("finished migrating user to connectwise",
 		"zendeskUserId", zendeskUser.User.Id,
 		"psaContactId", contact.Id,
 		"alreadyExisted", alreadyExisted)

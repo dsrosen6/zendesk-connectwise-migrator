@@ -3,7 +3,7 @@ package migration
 import (
 	"context"
 	"fmt"
-	zendesk2 "github.com/dsrosen/zendesk-connectwise-migrator/internal/apis/zendesk"
+	"github.com/dsrosen/zendesk-connectwise-migrator/internal/zendesk"
 	"log/slog"
 	"time"
 )
@@ -11,17 +11,17 @@ import (
 type InputTicket struct {
 	Subject            string
 	InitialDescription string
-	Organization       zendesk2.Organization
-	Requester          zendesk2.User
-	Assignee           zendesk2.User
+	Organization       zendesk.Organization
+	Requester          zendesk.User
+	Assignee           zendesk.User
 	Comments           []commentInput
 	Closed             bool // ie, "closed"
 	ClosedAt           time.Time
 }
 
 type commentInput struct {
-	Sender    zendesk2.User
-	Ccs       []zendesk2.User
+	Sender    zendesk.User
+	Ccs       []zendesk.User
 	Body      string
 	Public    bool
 	CreatedAt time.Time
@@ -87,7 +87,7 @@ func (c *Client) ConstructInputTicket(ctx context.Context, ticketId int64) (*Inp
 	return inputTicket, nil
 }
 
-func (c *Client) createCommentInput(ctx context.Context, comment zendesk2.Comment) (commentInput, error) {
+func (c *Client) createCommentInput(ctx context.Context, comment zendesk.Comment) (commentInput, error) {
 	slog.Debug("migration.Client.createCommentInput called", "commentId", comment.Id)
 	sender, err := c.ZendeskClient.GetUser(ctx, comment.AuthorId)
 	if err != nil {
@@ -95,7 +95,7 @@ func (c *Client) createCommentInput(ctx context.Context, comment zendesk2.Commen
 		return commentInput{}, fmt.Errorf("an error occured getting comment author: %w", err)
 	}
 
-	var ccs []zendesk2.User
+	var ccs []zendesk.User
 	if comment.Via.Source.To.EmailCcs != nil {
 		for _, ccId := range comment.Via.Source.To.EmailCcs {
 			cc, err := c.ZendeskClient.GetUser(ctx, ccId)

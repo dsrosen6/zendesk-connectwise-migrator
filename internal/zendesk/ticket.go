@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"log/slog"
 	"time"
 )
 
@@ -102,12 +101,10 @@ type To struct {
 }
 
 func (c *Client) GetTicketsWithQuery(ctx context.Context, q SearchQuery, pageSize int, justGetOne bool) ([]Ticket, error) {
-	slog.Debug("zendesk.Client.GetTicketsWithQuery called", "query", q)
 	var allTickets []Ticket
 	currentPage := &TicketSearchResp{}
 
 	if err := c.exportSearchRequest(ctx, TicketSearchType, q, pageSize, &currentPage); err != nil {
-		slog.Error("error getting tickets with query", "error", err)
 		return nil, fmt.Errorf("an error occured getting the tickets: %w", err)
 	}
 
@@ -120,7 +117,7 @@ func (c *Client) GetTicketsWithQuery(ctx context.Context, q SearchQuery, pageSiz
 
 	for currentPage.Meta.HasMore {
 		nextPage := &TicketSearchResp{}
-		if err := c.apiRequest(ctx, "GET", currentPage.Links.Next, nil, &nextPage); err != nil {
+		if err := c.ApiRequest(ctx, "GET", currentPage.Links.Next, nil, &nextPage); err != nil {
 			return nil, fmt.Errorf("an error occured getting next page of tickets: %w", err)
 		}
 
@@ -135,7 +132,7 @@ func (c *Client) GetTicket(ctx context.Context, ticketId int64) (*Ticket, error)
 	url := fmt.Sprintf("%s/tickets/%d", c.baseUrl, ticketId)
 	t := &TicketResp{}
 
-	if err := c.apiRequest(ctx, "GET", url, nil, &t); err != nil {
+	if err := c.ApiRequest(ctx, "GET", url, nil, &t); err != nil {
 		return nil, fmt.Errorf("an error occured getting the ticket: %w", err)
 	}
 
@@ -143,12 +140,11 @@ func (c *Client) GetTicket(ctx context.Context, ticketId int64) (*Ticket, error)
 }
 
 func (c *Client) GetAllTicketComments(ctx context.Context, ticketId int64) (TicketComments, error) {
-	slog.Debug("zendesk.Client.GetAllTicketComments called", "ticketId", ticketId)
 	initialUrl := fmt.Sprintf("%s/tickets/%d/comments.json?page[size]=100", c.baseUrl, ticketId)
 	allComments := &TicketComments{}
 	currentPage := &TicketComments{}
 
-	if err := c.apiRequest(ctx, "GET", initialUrl, nil, &currentPage); err != nil {
+	if err := c.ApiRequest(ctx, "GET", initialUrl, nil, &currentPage); err != nil {
 		return TicketComments{}, fmt.Errorf("an error occured getting initial ticket comments: %w", err)
 	}
 
@@ -158,7 +154,7 @@ func (c *Client) GetAllTicketComments(ctx context.Context, ticketId int64) (Tick
 	for currentPage.Meta.HasMore {
 		nextPage := &TicketComments{}
 		log.Printf("Next page: %s", currentPage.Links.Next)
-		if err := c.apiRequest(ctx, "GET", currentPage.Links.Next, nil, &nextPage); err != nil {
+		if err := c.ApiRequest(ctx, "GET", currentPage.Links.Next, nil, &nextPage); err != nil {
 			return TicketComments{}, fmt.Errorf("an error occured getting next page of ticket comments: %w", err)
 		}
 
@@ -167,6 +163,5 @@ func (c *Client) GetAllTicketComments(ctx context.Context, ticketId int64) (Tick
 
 	}
 
-	slog.Debug("returning comments", "totalComments", len(allComments.Comments))
 	return *allComments, nil
 }

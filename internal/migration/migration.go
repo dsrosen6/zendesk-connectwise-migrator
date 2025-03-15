@@ -3,8 +3,8 @@ package migration
 import (
 	"context"
 	"fmt"
-	"github.com/dsrosen/zendesk-connectwise-migrator/internal/apis/psa"
-	"github.com/dsrosen/zendesk-connectwise-migrator/internal/apis/zendesk"
+	"github.com/dsrosen/zendesk-connectwise-migrator/internal/psa"
+	"github.com/dsrosen/zendesk-connectwise-migrator/internal/zendesk"
 	"github.com/spf13/viper"
 	"log/slog"
 	"net/http"
@@ -40,9 +40,9 @@ func RunStartup(ctx context.Context) (*Client, error) {
 	if err := cfg.PreClientValidate(); err != nil {
 		return nil, fmt.Errorf("validating and prompt config: %w", err)
 	}
-	slog.Info("Config Validated")
+	slog.Info("config validated")
 
-	client := newClient(cfg.Zendesk.Creds, cfg.CW.Creds, cfg)
+	client := newClient(cfg.Zendesk.Creds, cfg.Connectwise.Creds, cfg)
 
 	if err := client.PostClientValidate(ctx); err != nil {
 		return nil, fmt.Errorf("validating after client creation: %w", err)
@@ -68,18 +68,20 @@ func newClient(zendeskCreds zendesk.Creds, cwCreds psa.Creds, cfg *Config) *Clie
 func (c *Client) testConnection(ctx context.Context) error {
 	var failedTests []string
 	if err := c.ZendeskClient.ConnectionTest(ctx); err != nil {
+		slog.Error("zendesk api connection test", "error", err)
 		failedTests = append(failedTests, fmt.Sprintf("zendesk: %s", err))
 	}
 
 	if err := c.CwClient.ConnectionTest(ctx); err != nil {
+		slog.Error("connectwise api connection test", "error", err)
 		failedTests = append(failedTests, fmt.Sprintf("connectwise: %s", err))
 	}
 
 	if len(failedTests) > 0 {
-		slog.Error("ConnectionTest: error", "failedTests", failedTests)
+		slog.Error("connection test", "failedTests", failedTests)
 		return fmt.Errorf("failed connection tests: %v", strings.Join(failedTests, ","))
 	}
 
-	slog.Info("ConnectionTest: success")
+	slog.Info("connection tests successful")
 	return nil
 }

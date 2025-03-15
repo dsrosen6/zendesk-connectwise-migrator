@@ -51,7 +51,7 @@ func NewModel(cx context.Context, mc *migration.Client) Model {
 	ctx = cx
 
 	spnr = spinner.New()
-	spnr.Spinner = spinner.Line
+	spnr.Spinner = spinner.Ellipsis
 	spnr.Style = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "236", Dark: "248"})
 
 	mm := newMainMenuModel(mc)
@@ -154,7 +154,7 @@ func switchModel(sm tea.Model) tea.Cmd {
 }
 
 func runSpinner(text string) string {
-	return fmt.Sprintf("%s %s\n", spnr.View(), text)
+	return fmt.Sprintf("%s%s", text, spnr.View())
 }
 
 func convertDateStringsToTimeTime(details *timeConversionDetails) (time.Time, time.Time, error) {
@@ -206,7 +206,11 @@ func (m Model) viewportDivider() string {
 }
 
 func (m Model) appFooter() string {
-	return line(m.windowWidth)
+	return lipgloss.NewStyle().
+		Align(lipgloss.Left).
+		Width(m.windowWidth).
+		Border(lipgloss.NormalBorder(), true, false, true, false).
+		Render("CTRL+C: Copy Results | ESC: Exit")
 }
 
 func line(w int) string {

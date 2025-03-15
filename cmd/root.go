@@ -5,8 +5,9 @@ import (
 	"fmt"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/migration"
-	"github.com/dsrosen/zendesk-connectwise-migrator/internal/migration/tui"
+	"github.com/dsrosen/zendesk-connectwise-migrator/internal/tui"
 	"github.com/spf13/cobra"
+	"log/slog"
 	"os"
 	"path/filepath"
 )
@@ -50,12 +51,14 @@ var runCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := migration.RunStartup(ctx)
 		if err != nil {
+			slog.Error("running startup", "error", err)
 			return fmt.Errorf("running startup: %w", err)
 		}
 
 		p := tea.NewProgram(tui.NewModel(ctx, client), tea.WithAltScreen(), tea.WithMouseCellMotion())
 		if _, err := p.Run(); err != nil {
-			return fmt.Errorf("an error occured launching the terminal interface: %w", err)
+			slog.Error("running terminal interface", "error", err)
+			return fmt.Errorf("launching terminal interface: %w", err)
 		}
 
 		return nil
@@ -68,11 +71,13 @@ var cfgCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := migration.InitConfig()
 		if err != nil {
+			slog.Error("initializing config", "error", err)
 			return fmt.Errorf("initializing config: %w", err)
 		}
 
 		if err := cfg.RunForm(); err != nil {
-			return fmt.Errorf("prompting fields: %w", err)
+			slog.Error("running config form", "error", err)
+			return fmt.Errorf("running config form: %w", err)
 		}
 
 		fmt.Println("Config saved")
