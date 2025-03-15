@@ -68,11 +68,11 @@ func newClient(zendeskCreds zendesk.Creds, cwCreds psa.Creds, cfg *Config) *Clie
 func (c *Client) testConnection(ctx context.Context) error {
 	var failedTests []string
 	if err := c.ZendeskClient.ConnectionTest(ctx); err != nil {
-		failedTests = append(failedTests, "zendesk")
+		failedTests = append(failedTests, fmt.Sprintf("zendesk: %s", err))
 	}
 
 	if err := c.CwClient.ConnectionTest(ctx); err != nil {
-		failedTests = append(failedTests, "connectwise")
+		failedTests = append(failedTests, fmt.Sprintf("connectwise: %s", err))
 	}
 
 	if len(failedTests) > 0 {

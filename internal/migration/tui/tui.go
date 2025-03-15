@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -85,6 +86,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		if !m.ready {
 			m.viewport = viewport.New(msg.Width, (msg.Height-verticalMarginHeight)*2/3)
+
 			m.verticalLeftForMainView = m.windowHeight - verticalMarginHeight - m.viewport.Height
 			m.viewport.SetContent(m.viewportBody)
 			m.ready = true
@@ -97,9 +99,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 
 		switch msg.String() {
-		case "ctrl+c", "esc":
+		case "esc":
 			m.quitting = true
 			cmds = append(cmds, tea.Quit)
+		case "ctrl+c":
+			cmds = append(cmds, copyToClipboard(m.viewportBody))
 		}
 
 	case switchModelMsg:
@@ -107,7 +111,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.currentModel = msg
 		cmds = append(cmds, m.currentModel.Init())
 
-	case updateViewportMsg:
+	case updateResultsMsg:
+		slog.Debug("got updateViewportCmd")
 		m.viewportTitle = msg.title
 		m.viewportBody = msg.body
 	}
@@ -214,4 +219,16 @@ func maxRepeats(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// TODO: add an on screen instruction for this
+func copyToClipboard(s string) tea.Cmd {
+	return func() tea.Msg {
+		if err := clipboard.WriteAll(s); err != nil {
+			slog.Error("copying result to clipboard", "error", err)
+			return nil
+		}
+		slog.Debug("copied result to clipboard")
+		return nil
+	}
 }

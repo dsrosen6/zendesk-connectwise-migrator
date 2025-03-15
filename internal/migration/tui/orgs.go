@@ -9,6 +9,7 @@ import (
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/migration"
 	"log/slog"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -20,7 +21,6 @@ type orgCheckerModel struct {
 	orgsNotInPsa    []zendesk.Organization
 	done            bool
 	viewport        viewport.Model
-	resultsString   string
 }
 
 type tagDetails struct {
@@ -30,13 +30,12 @@ type tagDetails struct {
 }
 
 type allOrgs struct {
-	master        []*orgMigrationDetails
-	checked       []*orgMigrationDetails
-	withTickets   []*orgMigrationDetails
-	inPsa         []*orgMigrationDetails
-	notInPsa      []*orgMigrationDetails
-	notInPsaNames []string
-	erroredOrgs   []erroredOrg
+	master      []*orgMigrationDetails
+	checked     []*orgMigrationDetails
+	withTickets []*orgMigrationDetails
+	inPsa       []*orgMigrationDetails
+	notInPsa    []*orgMigrationDetails
+	erroredOrgs []erroredOrg
 }
 
 type orgMigrationDetails struct {
@@ -73,6 +72,11 @@ func (m *orgCheckerModel) Init() tea.Cmd {
 }
 
 func (m *orgCheckerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var (
+		cmd  tea.Cmd
+		cmds []tea.Cmd
+	)
+
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		if m.status == done && msg.String() == "m" {
@@ -93,32 +97,21 @@ func (m *orgCheckerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			for _, org := range m.orgs.master {
 				checkOrgCmds = append(checkOrgCmds, m.checkOrg(org))
 			}
-			return m, tea.Sequence(checkOrgCmds...)
+			return m, tea.Batch(checkOrgCmds...)
 
 		case switchStatusMsg(done):
-			m.done = true
+			slog.Debug("received done status msg")
+			m.status = done
+			cmd = constructOutput(m.orgs.notInPsa)
+			cmds = append(cmds, cmd)
 		}
-	}
-
-	var (
-		cmd  tea.Cmd
-		cmds []tea.Cmd
-	)
-
-	if len(m.orgs.notInPsaNames) > 0 {
-		var r string
-		for _, name := range m.orgs.notInPsaNames {
-			r += fmt.Sprintf(" %s\n", name)
-		}
-		m.resultsString = r
-		cmd = sendResultsCmd("Orgs Not in PSA", m.resultsString)
-		cmds = append(cmds, cmd)
 	}
 
 	if m.status == comparingOrgs && !m.done {
 		if len(m.orgs.master) == len(m.orgs.checked) {
 			slog.Debug("done")
-			m.status = done
+			cmd = switchStatus(done)
+			cmds = append(cmds, cmd)
 		}
 	}
 
@@ -140,8 +133,8 @@ func (m *orgCheckerModel) View() string {
 
 	s += st
 
-	s += fmt.Sprintf("\n Checked: %d/%d\n With Tickets: %d\n In PSA/With Tickets: %d/%d\n Errored: %d\n",
-		len(m.orgs.checked), len(m.orgs.master), len(m.orgs.withTickets), len(m.orgs.inPsa), len(m.orgs.withTickets), len(m.orgs.erroredOrgs))
+	s += fmt.Sprintf("\n Checked: %d/%d\n With Tickets: %d\n In PSA/With Tickets: %d/%d\n Not in PSA: %d\n Errored: %d\n",
+		len(m.orgs.checked), len(m.orgs.master), len(m.orgs.withTickets), len(m.orgs.inPsa), len(m.orgs.withTickets), len(m.orgs.notInPsa), len(m.orgs.erroredOrgs))
 
 	return s
 }
@@ -227,9 +220,7 @@ func (m *orgCheckerModel) checkOrg(org *orgMigrationDetails) tea.Cmd {
 			if m.orgInPsa(org) {
 				m.orgs.inPsa = append(m.orgs.inPsa, org)
 			} else {
-				m.orgs.notInPsa = append(m.orgs.inPsa)
-				m.orgs.notInPsaNames = append(m.orgs.notInPsaNames, org.zendeskOrg.Name)
-				slices.Sort(m.orgs.notInPsaNames)
+				m.orgs.notInPsa = append(m.orgs.notInPsa, org)
 			}
 		}
 
@@ -241,4 +232,30 @@ func (m *orgCheckerModel) checkOrg(org *orgMigrationDetails) tea.Cmd {
 func (m *orgCheckerModel) orgInPsa(org *orgMigrationDetails) bool {
 	_, err := m.migrationClient.MatchZdOrgToCwCompany(ctx, org.zendeskOrg)
 	return err == nil
+}
+
+func switchStatus(s status) tea.Cmd {
+	return func() tea.Msg {
+		return switchStatusMsg(s)
+	}
+}
+
+func constructOutput(orgs []*orgMigrationDetails) tea.Cmd {
+	return func() tea.Msg {
+		slog.Debug("starting constructOutput", "totalOrgs", len(orgs))
+		var names []string
+		if len(orgs) == 0 {
+			slog.Debug("sending constructOutput cmd", "output", "allInPsa")
+			return updateResultsMsg{title: "Orgs Not in PSA", body: "All Orgs are in the PSA!"}
+		}
+
+		for _, org := range orgs {
+			names = append(names, org.zendeskOrg.Name)
+		}
+
+		slices.Sort(names)
+		output := strings.Join(names, "\n")
+		slog.Debug("sending constructOutput cmd", "output", output)
+		return updateResultsMsg{title: "Orgs Not in PSA", body: output}
+	}
 }

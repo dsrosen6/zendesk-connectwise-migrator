@@ -69,13 +69,6 @@ func (c *Client) apiRequest(ctx context.Context, method, url string, body io.Rea
 			return fmt.Errorf("an error occured sending the request: %w", err)
 		}
 
-		defer func(Body io.ReadCloser) {
-			err := Body.Close()
-			if err != nil {
-				fmt.Println(err)
-			}
-		}(res.Body)
-
 		if res.StatusCode == http.StatusOK || res.StatusCode == http.StatusCreated {
 			data, err := io.ReadAll(res.Body)
 			if err != nil {
@@ -110,8 +103,8 @@ func (c *Client) apiRequest(ctx context.Context, method, url string, body io.Rea
 			slog.Warn("zendesk API request failed", "statusCode", res.StatusCode)
 		}
 
+		res.Body.Close()
 		time.Sleep(time.Duration(retryAfter) * time.Second)
-
 	}
 
 	return fmt.Errorf("max retries exceeded")
