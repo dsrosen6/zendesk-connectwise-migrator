@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -42,7 +43,7 @@ func (c *Client) ConnectionTest(ctx context.Context) error {
 	co := CompaniesResp{}
 
 	if err := c.ApiRequest(ctx, "GET", url, nil, &co); err != nil {
-		return err
+		return errors.New("failed to connect to Connectwise API")
 	}
 
 	return nil

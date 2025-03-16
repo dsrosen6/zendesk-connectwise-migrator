@@ -3,6 +3,7 @@ package zendesk
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -41,7 +42,7 @@ func (c *Client) ConnectionTest(ctx context.Context) error {
 
 	u := &Users{}
 	if err := c.ApiRequest(ctx, "GET", url, nil, &u); err != nil {
-		return err
+		return errors.New("failed to connect to Zendesk API")
 	}
 
 	return nil
@@ -50,8 +51,8 @@ func (c *Client) ConnectionTest(ctx context.Context) error {
 // ApiRequest is a wrapper for apiRequest, meant for more streamlined error logging.
 func (c *Client) ApiRequest(ctx context.Context, method, url string, body io.Reader, target interface{}) error {
 	if err := c.apiRequest(ctx, method, url, body, target); err != nil {
-		slog.Warn("Connectwise API Error", "error", err)
-		return fmt.Errorf("running ConnectWise PSA API request: %w", err)
+		slog.Warn("zendesk api error", "error", err)
+		return fmt.Errorf("running Zendesk API request: %w", err)
 	}
 
 	return nil
@@ -104,9 +105,12 @@ func (c *Client) apiRequest(ctx context.Context, method, url string, body io.Rea
 				retryAfter = 1
 			}
 
-			slog.Warn("rate limit exceeded, retrying", "retryAfter", retryAfter)
+			slog.Warn("rate limit exceeded, retrying",
+				"retryAfter", retryAfter,
+				"totalRetries", fmt.Sprintf("%d/%d", attempt, maxRetries))
 		} else {
-			slog.Warn("zendesk API request failed", "statusCode", res.StatusCode)
+			slog.Warn("zendesk API request failed", "statusCode", res.StatusCode,
+				"totalRetries", fmt.Sprintf("%d/%d", attempt, maxRetries))
 		}
 
 		err = res.Body.Close()

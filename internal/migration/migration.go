@@ -37,15 +37,16 @@ func RunStartup(ctx context.Context) (*Client, error) {
 		return nil, fmt.Errorf("failed to initialize config: %w", err)
 	}
 
-	if err := cfg.PreClientValidate(); err != nil {
-		return nil, fmt.Errorf("validating and prompt config: %w", err)
+	if err := cfg.validatePreClient(); err != nil {
+		return nil, fmt.Errorf("validating config: %w", err)
 	}
+
 	slog.Info("config validated")
 
 	client := newClient(cfg.Zendesk.Creds, cfg.Connectwise.Creds, cfg)
 
-	if err := client.PostClientValidate(ctx); err != nil {
-		return nil, fmt.Errorf("validating after client creation: %w", err)
+	if err := client.validatePostClient(ctx); err != nil {
+		return nil, fmt.Errorf("validating config: %w", err)
 	}
 
 	slog.Debug("config details", "config", cfg)
@@ -69,12 +70,12 @@ func (c *Client) testConnection(ctx context.Context) error {
 	var failedTests []string
 	if err := c.ZendeskClient.ConnectionTest(ctx); err != nil {
 		slog.Error("zendesk api connection test", "error", err)
-		failedTests = append(failedTests, fmt.Sprintf("zendesk: %s", err))
+		failedTests = append(failedTests, "zendesk")
 	}
 
 	if err := c.CwClient.ConnectionTest(ctx); err != nil {
 		slog.Error("connectwise api connection test", "error", err)
-		failedTests = append(failedTests, fmt.Sprintf("connectwise: %s", err))
+		failedTests = append(failedTests, "connectwise")
 	}
 
 	if len(failedTests) > 0 {

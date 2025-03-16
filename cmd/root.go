@@ -42,17 +42,11 @@ var rootCmd = &cobra.Command{
 		}
 		return nil
 	},
-}
-
-var runCmd = &cobra.Command{
-	Use:          "run",
-	Args:         cobra.MaximumNArgs(1),
-	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := migration.RunStartup(ctx)
 		if err != nil {
 			slog.Error("running startup", "error", err)
-			return fmt.Errorf("running startup: %w", err)
+			return err
 		}
 
 		p := tea.NewProgram(tui.NewModel(ctx, client), tea.WithAltScreen(), tea.WithMouseCellMotion())
@@ -61,26 +55,6 @@ var runCmd = &cobra.Command{
 			return fmt.Errorf("launching terminal interface: %w", err)
 		}
 
-		return nil
-	},
-}
-
-var cfgCmd = &cobra.Command{
-	Use:     "config",
-	Aliases: []string{"cfg"},
-	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := migration.InitConfig()
-		if err != nil {
-			slog.Error("initializing config", "error", err)
-			return fmt.Errorf("initializing config: %w", err)
-		}
-
-		if err := cfg.RunForm(); err != nil {
-			slog.Error("running config form", "error", err)
-			return fmt.Errorf("running config form: %w", err)
-		}
-
-		fmt.Println("Config saved")
 		return nil
 	},
 }
@@ -94,6 +68,4 @@ func Execute() {
 
 func init() {
 	rootCmd.PersistentFlags().BoolP("debug", "d", false, "enable debug logging")
-	rootCmd.AddCommand(cfgCmd)
-	rootCmd.AddCommand(runCmd)
 }

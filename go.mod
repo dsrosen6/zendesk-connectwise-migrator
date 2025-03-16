@@ -7,6 +7,7 @@ require (
 	github.com/charmbracelet/bubbles v0.20.0
 	github.com/charmbracelet/bubbletea v1.3.4
 	github.com/charmbracelet/huh v0.6.1-0.20250307163404-7a717414e37a
+	github.com/charmbracelet/huh/spinner v0.0.0-20250315225456-0761ac7eb2e8
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/spf13/cobra v1.9.1
 	github.com/spf13/viper v1.20.0
