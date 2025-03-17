@@ -2,11 +2,11 @@ package tui
 
 import (
 	"fmt"
-	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/migration"
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/psa"
-	zendesk2 "github.com/dsrosen/zendesk-connectwise-migrator/internal/zendesk"
+	"github.com/dsrosen/zendesk-connectwise-migrator/internal/zendesk"
 	"log/slog"
 	"slices"
 	"strings"
@@ -14,13 +14,11 @@ import (
 )
 
 type orgCheckerModel struct {
-	tags            []tagDetails
-	orgs            allOrgs
 	migrationClient *migration.Client
+	tags            []tagDetails
+	orgs            *allOrgs
 	status          status
-	orgsNotInPsa    []zendesk2.Organization
 	done            bool
-	viewport        viewport.Model
 }
 
 type tagDetails struct {
@@ -40,7 +38,7 @@ type allOrgs struct {
 
 type orgMigrationDetails struct {
 	tag        *tagDetails
-	zendeskOrg zendesk2.Organization
+	zendeskOrg zendesk.Organization
 	psaOrg     psa.Company
 }
 
@@ -63,6 +61,7 @@ const (
 func newOrgCheckerModel(mc *migration.Client) *orgCheckerModel {
 	return &orgCheckerModel{
 		migrationClient: mc,
+		orgs:            &allOrgs{},
 		status:          gettingZendeskOrgs,
 	}
 }
@@ -102,7 +101,7 @@ func (m *orgCheckerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case switchStatusMsg(done):
 			slog.Debug("org checker: done checking orgs")
 			m.status = done
-			cmd = constructOutput(m.orgs.notInPsa)
+			cmd = m.constructOutput()
 			cmds = append(cmds, cmd)
 		}
 	}
@@ -132,7 +131,11 @@ func (m *orgCheckerModel) View() string {
 
 	s += st
 
-	s += fmt.Sprintf("\n\nChecked: %d/%d\nWith Tickets: %d\nIn PSA/With Tickets: %d/%d\nNot in PSA: %d\nErrored: %d\n",
+	s += fmt.Sprintf("\n\nChecked: %d/%d\n"+
+		"With Tickets: %d\n"+
+		"In PSA/With Tickets: %d/%d\n"+
+		"Not in PSA: %d\n"+
+		"Errored: %d\n",
 		len(m.orgs.checked), len(m.orgs.master), len(m.orgs.withTickets), len(m.orgs.inPsa), len(m.orgs.withTickets), len(m.orgs.notInPsa), len(m.orgs.erroredOrgs))
 
 	return s
@@ -170,7 +173,7 @@ func (m *orgCheckerModel) getOrgs() tea.Cmd {
 		slog.Debug("getting orgs for tags", "tags", m.migrationClient.Cfg.Zendesk.TagsToMigrate)
 		for _, tag := range m.tags {
 			slog.Debug("getting orgs for tag", "tag", tag.name)
-			q := &zendesk2.SearchQuery{}
+			q := &zendesk.SearchQuery{}
 			q.Tags = []string{tag.name}
 
 			slog.Info("getting all orgs from zendesk for tag group", "tag", tag.name)
@@ -194,7 +197,7 @@ func (m *orgCheckerModel) getOrgs() tea.Cmd {
 
 func (m *orgCheckerModel) checkOrg(org *orgMigrationDetails) tea.Cmd {
 	return func() tea.Msg {
-		q := &zendesk2.SearchQuery{}
+		q := &zendesk.SearchQuery{}
 		if org.tag.startDate != (time.Time{}) {
 			q.TicketCreatedAfter = org.tag.startDate
 		}
@@ -213,8 +216,10 @@ func (m *orgCheckerModel) checkOrg(org *orgMigrationDetails) tea.Cmd {
 		if len(tickets) > 0 {
 			m.orgs.withTickets = append(m.orgs.withTickets, org)
 			if m.orgInPsa(org) {
+				slog.Debug("org in PSA", "orgName", org.zendeskOrg.Name)
 				m.orgs.inPsa = append(m.orgs.inPsa, org)
 			} else {
+				slog.Debug("org not in PSA", "orgName", org.zendeskOrg.Name)
 				m.orgs.notInPsa = append(m.orgs.notInPsa, org)
 			}
 		}
@@ -235,19 +240,39 @@ func switchStatus(s status) tea.Cmd {
 	}
 }
 
-func constructOutput(orgs []*orgMigrationDetails) tea.Cmd {
+func (m *orgCheckerModel) constructOutput() tea.Cmd {
 	return func() tea.Msg {
-		var names []string
-		if len(orgs) == 0 {
-			return updateResultsMsg{title: "Orgs Not in PSA", body: "All Orgs are in the PSA!"}
+		var notInPsa, errored []string
+
+		for _, org := range m.orgs.notInPsa {
+			notInPsa = append(notInPsa, org.zendeskOrg.Name)
 		}
 
-		for _, org := range orgs {
-			names = append(names, org.zendeskOrg.Name)
+		for _, org := range m.orgs.erroredOrgs {
+			summary := fmt.Sprintf("%s\n%s", org.org.zendeskOrg.Name, org.err)
+			errored = append(errored, summary)
 		}
 
-		slices.Sort(names)
-		output := strings.Join(names, "\n")
-		return updateResultsMsg{title: "Orgs Not in PSA", body: output}
+		slices.Sort(notInPsa)
+		slices.Sort(errored)
+
+		var output string
+		if len(notInPsa) > 0 {
+			output += lipgloss.NewStyle().
+				Border(lipgloss.NormalBorder(), false, false, true, false).
+				Bold(true).
+				Render("Zendesk Organizations Not in PSA")
+			output += fmt.Sprintf("\n%s\n", strings.Join(notInPsa, "\n"))
+		}
+
+		if len(errored) > 0 {
+			output += lipgloss.NewStyle().
+				Border(lipgloss.NormalBorder(), false, false, true, false).
+				Bold(true).
+				Render("Errors")
+			output += fmt.Sprintf("\n%s\n", strings.Join(errored, "\n"))
+		}
+
+		return updateResultsMsg{title: "Results", body: output}
 	}
 }

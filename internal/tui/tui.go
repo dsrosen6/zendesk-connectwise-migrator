@@ -17,6 +17,11 @@ import (
 var (
 	ctx  context.Context
 	spnr spinner.Model
+
+	titleStyle = func() lipgloss.Style {
+		b := lipgloss.NormalBorder()
+		return lipgloss.NewStyle().BorderStyle(b).Padding(0, 1)
+	}
 )
 
 type Model struct {
@@ -59,6 +64,7 @@ func NewModel(cx context.Context, mc *migration.Client) Model {
 	return Model{
 		migrationClient: mc,
 		currentModel:    mm,
+		viewportTitle:   "Results",
 	}
 }
 
@@ -85,14 +91,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		verticalMarginHeight := mainHeaderHeight + mainFooterHeight + viewportDvdrHeight
 
 		if !m.ready {
-			m.viewport = viewport.New(msg.Width, (msg.Height-verticalMarginHeight)*2/3)
+			m.viewport = viewport.New(msg.Width, (msg.Height-verticalMarginHeight)*1/2)
 
 			m.verticalLeftForMainView = m.windowHeight - verticalMarginHeight - m.viewport.Height
 			m.viewport.SetContent(m.viewportBody)
 			m.ready = true
 		} else {
 			m.viewport.Width = msg.Width
-			m.viewport.Height = (msg.Height - verticalMarginHeight) * 2 / 3
+			m.viewport.Height = (msg.Height - verticalMarginHeight) * 1 / 2
 			m.viewport.SetContent(m.viewportBody)
 		}
 
@@ -189,28 +195,25 @@ func convertDateStringsToTimeTime(details *timeConversionDetails) (time.Time, ti
 }
 
 func (m Model) appHeader() string {
-	return lipgloss.NewStyle().
-		Align(lipgloss.Center).
-		PaddingTop(1).
-		Width(m.windowWidth).
-		Border(lipgloss.NormalBorder(), false, false, true, false).
-		Render("Ticket Migration Utility")
+	return m.titleBar("Ticket Migration Utility")
 }
 
 func (m Model) viewportDivider() string {
-	return lipgloss.NewStyle().
-		Align(lipgloss.Center).
-		Width(m.windowWidth).
-		Border(lipgloss.NormalBorder(), false, false, true, false).
-		Render(m.viewportTitle)
+	return m.titleBar(m.viewportTitle)
+}
+
+func (m Model) titleBar(t string) string {
+	titleBox := titleStyle().Render(t)
+
+	titleBoxWidth := lipgloss.Width(titleBox)
+
+	dividerLength := m.windowWidth - titleBoxWidth
+
+	return lipgloss.JoinHorizontal(lipgloss.Center, titleBox, line(dividerLength))
 }
 
 func (m Model) appFooter() string {
-	return lipgloss.NewStyle().
-		Align(lipgloss.Left).
-		Width(m.windowWidth).
-		Border(lipgloss.NormalBorder(), true, false, true, false).
-		Render("CTRL+C: Copy Results | ESC: Exit")
+	return m.titleBar("CTRL+C: Copy Results | ESC: Exit")
 }
 
 func line(w int) string {
