@@ -8,8 +8,10 @@ import (
 	"time"
 )
 
-type Users struct {
+type UsersResp struct {
 	Users []User `json:"users"`
+	Meta  Meta   `json:"meta"`
+	Links Links  `json:"links"`
 }
 
 type User struct {
@@ -83,4 +85,28 @@ func (c *Client) GetUser(ctx context.Context, userId int64) (User, error) {
 	}
 
 	return *u, nil
+}
+
+func (c *Client) GetOrganizationUsers(ctx context.Context, orgId int64) ([]User, error) {
+	initialUrl := fmt.Sprintf("%s/organizations/%d/users?page[size]=100", c.baseUrl, orgId)
+	allUsers := &UsersResp{}
+	currentPage := &UsersResp{}
+
+	if err := c.ApiRequest(ctx, "GET", initialUrl, nil, &currentPage); err != nil {
+		return nil, fmt.Errorf("an error occured getting organization users: %w", err)
+	}
+
+	allUsers.Users = append(allUsers.Users, currentPage.Users...)
+
+	for currentPage.Meta.HasMore {
+		nextPage := &UsersResp{}
+		if err := c.ApiRequest(ctx, "GET", currentPage.Links.Next, nil, &nextPage); err != nil {
+			return nil, fmt.Errorf("an error occured getting organization users: %w", err)
+		}
+
+		allUsers.Users = append(allUsers.Users, nextPage.Users...)
+		currentPage = nextPage
+	}
+
+	return allUsers.Users, nil
 }

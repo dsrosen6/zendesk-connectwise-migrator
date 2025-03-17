@@ -24,19 +24,28 @@ var (
 		b := lipgloss.NormalBorder()
 		return lipgloss.NewStyle().BorderStyle(b).Padding(0, 1)
 	}
+
+	// App Dimensions
+	windowWidth             int
+	windowHeight            int
+	mainHeaderHeight        int
+	mainFooterHeight        int
+	viewportDvdrHeight      int
+	verticalMarginHeight    int
+	verticalLeftForMainView int
 )
 
 type Model struct {
 	migrationClient *migration.Client
 	currentModel    tea.Model
 	migrationData   *migrationData
-	dimensions
-	viewport viewPort
-	quitting bool
+	viewport        viewPort
+	quitting        bool
 }
 
 type migrationData struct {
-	orgsToMigrate []*orgMigrationDetails
+	readyOrgs          []*orgMigrationDetails
+	orgsToMigrateUsers []*orgMigrationDetails
 }
 
 type orgMigrationDetails struct {
@@ -62,13 +71,8 @@ type viewPort struct {
 	model viewport.Model
 	title string
 	body  string
+	show  bool
 	ready bool
-}
-
-type dimensions struct {
-	windowWidth             int
-	windowHeight            int
-	verticalLeftForMainView int
 }
 
 type timeConversionDetails struct {
@@ -84,39 +88,40 @@ type switchModelMsg tea.Model
 
 type sendOrgsMsg []*orgMigrationDetails
 
+type calculateDimensionsMsg struct{}
+
 func sendOrgsCmd(orgs []*orgMigrationDetails) tea.Cmd {
 	return func() tea.Msg {
 		return sendOrgsMsg(orgs)
 	}
 }
 
-func NewModel(cx context.Context, mc *migration.Client) Model {
+func NewModel(cx context.Context, mc *migration.Client) *Model {
 	ctx = cx
 
 	spnr = spinner.New()
 	spnr.Spinner = spinner.Ellipsis
 	spnr.Style = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "236", Dark: "248"})
 
-	mm := newMainMenuModel(mc)
+	data := &migrationData{}
+	mm := newMainMenuModel(mc, data)
 
-	return Model{
+	return &Model{
 		migrationClient: mc,
 		currentModel:    mm,
-		migrationData:   &migrationData{},
-		viewport: viewPort{
-			title: "Results",
-		},
+		migrationData:   data,
+		viewport:        viewPort{title: "Results", show: false},
 	}
 }
 
-func (m Model) Init() tea.Cmd {
+func (m *Model) Init() tea.Cmd {
 	return tea.Batch(
 		m.currentModel.Init(),
 		spnr.Tick,
 	)
 }
 
-func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var (
 		cmd  tea.Cmd
 		cmds []tea.Cmd
@@ -124,24 +129,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.windowWidth = msg.Width
-		m.windowHeight = msg.Height
-		mainHeaderHeight := lipgloss.Height(m.appHeader())
-		mainFooterHeight := lipgloss.Height(m.appFooter())
-		viewportDvdrHeight := lipgloss.Height(m.viewportDivider())
-		verticalMarginHeight := mainHeaderHeight + mainFooterHeight + viewportDvdrHeight
+		return m, calculateDimensions(msg.Width, msg.Height, m.viewport)
 
+	case calculateDimensionsMsg:
 		if !m.viewport.ready {
-			m.viewport.model = viewport.New(msg.Width, (msg.Height-verticalMarginHeight)*2/3)
-
-			m.verticalLeftForMainView = m.windowHeight - verticalMarginHeight - m.viewport.model.Height
+			m.viewport.model = viewport.New(windowWidth, (windowHeight-verticalMarginHeight)*2/3)
 			m.viewport.model.SetContent(m.viewport.body)
 			m.viewport.ready = true
-
 		} else {
-			m.viewport.model.Width = msg.Width
-			m.viewport.model.Height = (msg.Height - verticalMarginHeight) * 2 / 3
+			m.viewport.model.Width = windowWidth
+			m.viewport.model.Height = (windowHeight - verticalMarginHeight) * 2 / 3
 			m.viewport.model.SetContent(m.viewport.body)
+		}
+
+		if m.viewport.show {
+			verticalMarginHeight = mainHeaderHeight + mainFooterHeight + viewportDvdrHeight
+			verticalLeftForMainView = windowHeight - verticalMarginHeight - m.viewport.model.Height
+		} else {
+			verticalMarginHeight = mainHeaderHeight + mainFooterHeight
+			verticalLeftForMainView = windowHeight - verticalMarginHeight
 		}
 
 	case tea.KeyMsg:
@@ -153,7 +159,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "c":
 			cmds = append(cmds, copyToClipboard(m.viewport.body))
 		case "r":
-			cmds = append(cmds, switchModel(newMainMenuModel(m.migrationClient)))
+			cmds = append(cmds,
+				switchModel(newMainMenuModel(m.migrationClient, m.migrationData)),
+				toggleViewport(false))
 		}
 
 	case switchModelMsg:
@@ -163,12 +171,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case updateResultsMsg:
 		slog.Debug("received updated viewport content via updateResultsMsg")
-		m.viewport.title = msg.title
 		m.viewport.body = msg.body
+
+	case toggleViewportMsg:
+		m.viewport.show = msg.on
+		return m, calculateDimensions(windowWidth, windowHeight, m.viewport)
 
 	case sendOrgsMsg:
 		slog.Debug("received orgs via sendOrgsMsg")
-		m.migrationData.orgsToMigrate = msg
+		m.migrationData.readyOrgs = msg
 	}
 
 	spnr, cmd = spnr.Update(msg)
@@ -177,14 +188,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m.currentModel, cmd = m.currentModel.Update(msg)
 	cmds = append(cmds, cmd)
 
-	m.viewport.model.SetContent(m.viewport.body)
-	m.viewport.model, cmd = m.viewport.model.Update(msg)
-	cmds = append(cmds, cmd)
+	if m.viewport.show {
+		m.viewport.model.SetContent(m.viewport.body)
+		m.viewport.model, cmd = m.viewport.model.Update(msg)
+		cmds = append(cmds, cmd)
+	}
 
 	return m, tea.Batch(cmds...)
 }
 
-func (m Model) View() string {
+func (m *Model) View() string {
 	if m.quitting {
 		return ""
 	}
@@ -194,12 +207,20 @@ func (m Model) View() string {
 	}
 
 	mainView := lipgloss.NewStyle().
-		Width(m.windowWidth).
-		Height(m.verticalLeftForMainView).
+		Width(windowWidth).
+		Height(verticalLeftForMainView).
 		PaddingLeft(1).
 		Render(m.currentModel.View())
 
-	return lipgloss.JoinVertical(lipgloss.Top, m.appHeader(), mainView, m.viewportDivider(), m.viewport.model.View(), m.appFooter())
+	views := []string{appHeader(), mainView}
+
+	if m.viewport.show {
+		views = append(views, viewportDivider(m.viewport), m.viewport.model.View(), appFooter())
+	} else {
+		views = append(views, appFooter())
+	}
+
+	return lipgloss.JoinVertical(lipgloss.Top, views...)
 }
 
 func switchModel(sm tea.Model) tea.Cmd {
@@ -243,24 +264,24 @@ func convertDateStringsToTimeTime(details *timeConversionDetails) (time.Time, ti
 	return startDate, endDate, nil
 }
 
-func (m Model) appHeader() string {
-	return m.titleBar("Ticket Migration Utility")
+func appHeader() string {
+	return titleBar("Ticket Migration Utility")
 }
 
-func (m Model) viewportDivider() string {
-	return m.titleBar(m.viewport.title)
+func viewportDivider(v viewPort) string {
+	return titleBar(v.title)
 }
 
-func (m Model) appFooter() string {
-	return m.titleBar("C: Copy Results | R: Return to Main Menu | ESC: Exit Migration Tool")
+func appFooter() string {
+	return titleBar("C: Copy Results | R: Main Menu | ESC: Exit")
 }
 
-func (m Model) titleBar(t string) string {
+func titleBar(t string) string {
 	titleBox := titleStyle().Render(t)
 
 	titleBoxWidth := lipgloss.Width(titleBox)
 
-	dividerLength := m.windowWidth - titleBoxWidth
+	dividerLength := windowWidth - titleBoxWidth
 
 	return lipgloss.JoinHorizontal(lipgloss.Center, titleBox, line(dividerLength))
 }
@@ -286,5 +307,16 @@ func copyToClipboard(s string) tea.Cmd {
 		}
 		slog.Debug("copied result to clipboard")
 		return nil
+	}
+}
+
+func calculateDimensions(w, h int, v viewPort) tea.Cmd {
+	return func() tea.Msg {
+		windowWidth = w
+		windowHeight = h
+		mainHeaderHeight = lipgloss.Height(appHeader())
+		mainFooterHeight = lipgloss.Height(appFooter())
+		viewportDvdrHeight = lipgloss.Height(viewportDivider(v))
+		return calculateDimensionsMsg{}
 	}
 }

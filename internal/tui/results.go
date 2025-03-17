@@ -5,15 +5,28 @@ import (
 )
 
 type updateResultsMsg struct {
-	title string
-	body  string
+	body string
+	show bool
 }
 
-func sendResultsCmd(title, body string) tea.Cmd {
+type toggleViewportMsg struct {
+	on bool
+}
+
+func sendResultsCmd(body string) tea.Cmd {
 	return func() tea.Msg {
 		return updateResultsMsg{
-			title: title,
-			body:  body,
+			body: body,
 		}
+	}
+}
+
+func clearViewport() tea.Msg {
+	return updateResultsMsg{body: ""}
+}
+
+func toggleViewport(on bool) tea.Cmd {
+	return func() tea.Msg {
+		return toggleViewportMsg{on}
 	}
 }

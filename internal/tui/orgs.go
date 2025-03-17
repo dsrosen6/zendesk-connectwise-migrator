@@ -16,7 +16,7 @@ type orgCheckerModel struct {
 	migrationClient *migration.Client
 	tags            []tagDetails
 	orgs            *allOrgs
-	status          status
+	status          orgMigStatus
 	done            bool
 }
 
@@ -38,15 +38,21 @@ type erroredOrg struct {
 	err error
 }
 
-type switchStatusMsg string
+type orgMigStatus string
 
-type status string
+type switchOrgMigStatusMsg string
+
+func switchOrgMigStatus(s orgMigStatus) tea.Cmd {
+	return func() tea.Msg {
+		return switchOrgMigStatusMsg(s)
+	}
+}
 
 const (
-	gettingTags        status = "gettingTags"
-	gettingZendeskOrgs status = "gettingZendeskOrgs"
-	comparingOrgs      status = "comparingOrgs"
-	done               status = "done"
+	gettingTags        orgMigStatus = "gettingTags"
+	gettingZendeskOrgs orgMigStatus = "gettingZendeskOrgs"
+	comparingOrgs      orgMigStatus = "comparingOrgs"
+	done               orgMigStatus = "done"
 )
 
 func newOrgCheckerModel(mc *migration.Client) *orgCheckerModel {
@@ -68,28 +74,23 @@ func (m *orgCheckerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	)
 
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		if m.status == done && msg.String() == "m" {
-			return m, switchModel(newMainMenuModel(m.migrationClient))
-		}
-
-	case switchStatusMsg:
+	case switchOrgMigStatusMsg:
 		switch msg {
-		case switchStatusMsg(gettingZendeskOrgs):
+		case switchOrgMigStatusMsg(gettingZendeskOrgs):
 			slog.Debug("org checker: got tags", "tags", m.tags)
 			m.status = gettingZendeskOrgs
 			return m, m.getOrgs()
 
-		case switchStatusMsg(comparingOrgs):
+		case switchOrgMigStatusMsg(comparingOrgs):
 			slog.Debug("org checker: got orgs", "total", len(m.orgs.master))
 			m.status = comparingOrgs
 			var checkOrgCmds []tea.Cmd
 			for _, org := range m.orgs.master {
 				checkOrgCmds = append(checkOrgCmds, m.checkOrg(org))
 			}
-			return m, tea.Sequence(checkOrgCmds...)
+			return m, tea.Batch(checkOrgCmds...)
 
-		case switchStatusMsg(done):
+		case switchOrgMigStatusMsg(done):
 			slog.Debug("org checker: done checking orgs")
 			m.status = done
 			cmds = append(cmds, m.constructOutput())
@@ -99,7 +100,7 @@ func (m *orgCheckerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	if m.status == comparingOrgs && !m.done {
 		if len(m.orgs.master) == len(m.orgs.checked) {
-			cmd = switchStatus(done)
+			cmd = switchOrgMigStatus(done)
 			cmds = append(cmds, cmd)
 		}
 	}
@@ -152,7 +153,7 @@ func (m *orgCheckerModel) getTagDetails(tags []migration.TagDetails) tea.Cmd {
 
 			m.tags = append(m.tags, td)
 		}
-		return switchStatusMsg(gettingZendeskOrgs)
+		return switchOrgMigStatusMsg(gettingZendeskOrgs)
 	}
 }
 
@@ -179,7 +180,7 @@ func (m *orgCheckerModel) getOrgs() tea.Cmd {
 				m.orgs.master = append(m.orgs.master, md)
 			}
 		}
-		return switchStatusMsg(comparingOrgs)
+		return switchOrgMigStatusMsg(comparingOrgs)
 	}
 }
 
@@ -255,12 +256,6 @@ func (m *orgCheckerModel) updateCompanyFieldValue(org *orgMigrationDetails) erro
 	}
 
 	return nil
-}
-
-func switchStatus(s status) tea.Cmd {
-	return func() tea.Msg {
-		return switchStatusMsg(s)
-	}
 }
 
 func (m *orgCheckerModel) constructOutput() tea.Cmd {
@@ -353,6 +348,6 @@ func (m *orgCheckerModel) constructOutput() tea.Cmd {
 			output += fmt.Sprintf("\n%s\n", strings.Join(errored, "\n"))
 		}
 
-		return updateResultsMsg{title: "Results", body: output}
+		return updateResultsMsg{body: output}
 	}
 }

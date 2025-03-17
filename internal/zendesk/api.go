@@ -40,7 +40,7 @@ func NewClient(creds Creds, httpClient *http.Client) *Client {
 func (c *Client) ConnectionTest(ctx context.Context) error {
 	url := fmt.Sprintf("%s/users?page[size]=1", c.baseUrl)
 
-	u := &Users{}
+	u := &UsersResp{}
 	if err := c.ApiRequest(ctx, "GET", url, nil, &u); err != nil {
 		return errors.New("failed to connect to Zendesk API")
 	}
