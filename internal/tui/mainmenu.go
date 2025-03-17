@@ -15,6 +15,7 @@ type mainMenuModel struct {
 const (
 	mainMenuChoice = "mainMenuChoice"
 	orgMigrator    = "orgMigrator"
+	userMigrator   = "userMigrator"
 )
 
 func newMainMenuModel(mc *migration.Client) *mainMenuModel {
@@ -60,7 +61,8 @@ func mainMenuForm() *huh.Form {
 		huh.NewGroup(
 			huh.NewSelect[string]().
 				Options(
-					huh.NewOption("Migrate Organizations", orgMigrator),
+					huh.NewOption("Organizations", orgMigrator),
+					huh.NewOption("Users", userMigrator),
 				).
 				Key(mainMenuChoice),
 		)).WithShowHelp(false).WithTheme(migration.CustomHuhTheme())

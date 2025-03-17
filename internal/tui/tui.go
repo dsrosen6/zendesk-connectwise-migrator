@@ -30,9 +30,13 @@ type Model struct {
 	quitting        bool
 	ready           bool
 	dimensions
-	viewport      viewport.Model
-	viewportTitle string
-	viewportBody  string
+	viewport viewPort
+}
+
+type viewPort struct {
+	model viewport.Model
+	title string
+	body  string
 }
 
 type dimensions struct {
@@ -64,7 +68,9 @@ func NewModel(cx context.Context, mc *migration.Client) Model {
 	return Model{
 		migrationClient: mc,
 		currentModel:    mm,
-		viewportTitle:   "Results",
+		viewport: viewPort{
+			title: "Results",
+		},
 	}
 }
 
@@ -91,16 +97,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		verticalMarginHeight := mainHeaderHeight + mainFooterHeight + viewportDvdrHeight
 
 		if !m.ready {
-			m.viewport = viewport.New(msg.Width, (msg.Height-verticalMarginHeight)*2/3)
+			m.viewport.model = viewport.New(msg.Width, (msg.Height-verticalMarginHeight)*2/3)
 
-			m.verticalLeftForMainView = m.windowHeight - verticalMarginHeight - m.viewport.Height
-			m.viewport.SetContent(m.viewportBody)
+			m.verticalLeftForMainView = m.windowHeight - verticalMarginHeight - m.viewport.model.Height
+			m.viewport.model.SetContent(m.viewport.body)
 			m.ready = true
 
 		} else {
-			m.viewport.Width = msg.Width
-			m.viewport.Height = (msg.Height - verticalMarginHeight) * 2 / 3
-			m.viewport.SetContent(m.viewportBody)
+			m.viewport.model.Width = msg.Width
+			m.viewport.model.Height = (msg.Height - verticalMarginHeight) * 2 / 3
+			m.viewport.model.SetContent(m.viewport.body)
 		}
 
 	case tea.KeyMsg:
@@ -109,8 +115,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "esc":
 			m.quitting = true
 			cmds = append(cmds, tea.Quit)
-		case "ctrl+c":
-			cmds = append(cmds, copyToClipboard(m.viewportBody))
+		case "c":
+			cmds = append(cmds, copyToClipboard(m.viewport.body))
+		case "r":
+			cmds = append(cmds, switchModel(newMainMenuModel(m.migrationClient)))
 		}
 
 	case switchModelMsg:
@@ -120,8 +128,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case updateResultsMsg:
 		slog.Debug("got updateViewportCmd")
-		m.viewportTitle = msg.title
-		m.viewportBody = msg.body
+		m.viewport.title = msg.title
+		m.viewport.body = msg.body
 	}
 
 	spnr, cmd = spnr.Update(msg)
@@ -130,8 +138,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m.currentModel, cmd = m.currentModel.Update(msg)
 	cmds = append(cmds, cmd)
 
-	m.viewport.SetContent(m.viewportBody)
-	m.viewport, cmd = m.viewport.Update(msg)
+	m.viewport.model.SetContent(m.viewport.body)
+	m.viewport.model, cmd = m.viewport.model.Update(msg)
 	cmds = append(cmds, cmd)
 
 	return m, tea.Batch(cmds...)
@@ -149,9 +157,10 @@ func (m Model) View() string {
 	mainView := lipgloss.NewStyle().
 		Width(m.windowWidth).
 		Height(m.verticalLeftForMainView).
+		PaddingLeft(1).
 		Render(m.currentModel.View())
 
-	return lipgloss.JoinVertical(lipgloss.Top, m.appHeader(), mainView, m.viewportDivider(), m.viewport.View(), m.appFooter())
+	return lipgloss.JoinVertical(lipgloss.Top, m.appHeader(), mainView, m.viewportDivider(), m.viewport.model.View(), m.appFooter())
 }
 
 func switchModel(sm tea.Model) tea.Cmd {
@@ -200,7 +209,7 @@ func (m Model) appHeader() string {
 }
 
 func (m Model) viewportDivider() string {
-	return m.titleBar(m.viewportTitle)
+	return m.titleBar(m.viewport.title)
 }
 
 func (m Model) titleBar(t string) string {

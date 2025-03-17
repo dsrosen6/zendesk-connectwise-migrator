@@ -9,6 +9,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
+	"time"
 )
 
 const (
@@ -60,41 +62,69 @@ func (c *Client) ApiRequest(ctx context.Context, method, url string, body io.Rea
 }
 
 func (c *Client) apiRequest(ctx context.Context, method, url string, body io.Reader, target interface{}) error {
-	req, err := http.NewRequestWithContext(ctx, method, url, body)
-	if err != nil {
-		return err
-	}
+	const maxRetries = 3
+	var retryAfter int
 
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("clientId", c.clientId)
-	req.Header.Set("Authorization", c.encodedCreds)
-
-	res, err := c.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("an error occured sending the request: %w", err)
-	}
-
-	defer func(Body io.ReadCloser) {
-		err := Body.Close()
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, method, url, body)
 		if err != nil {
-			fmt.Println(err)
+			return fmt.Errorf("an error occured creating the request: %w", err)
 		}
-	}(res.Body)
 
-	if res.StatusCode != http.StatusOK && res.StatusCode != http.StatusCreated {
-		return fmt.Errorf("status code: %s", res.Status)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("clientId", c.clientId)
+		req.Header.Set("Authorization", c.encodedCreds)
+
+		res, err := c.httpClient.Do(req)
+		if err != nil {
+			return fmt.Errorf("an error occured sending the request: %w", err)
+		}
+
+		if res.StatusCode == http.StatusOK || res.StatusCode == http.StatusCreated {
+			data, err := io.ReadAll(res.Body)
+			if err != nil {
+				return fmt.Errorf("an error occured reading the response body: %w", err)
+			}
+
+			if target != nil {
+				if err := json.Unmarshal(data, target); err != nil {
+					return fmt.Errorf("an error occured unmarshaling the response to JSON: %w", err)
+				}
+			}
+
+			return nil
+		}
+
+		if res.StatusCode == http.StatusTooManyRequests {
+			retryAfterHeader := res.Header.Get("Retry-After")
+
+			if retryAfterHeader != "" {
+				retryAfter, err = strconv.Atoi(retryAfterHeader)
+				if err != nil {
+					slog.Warn("failed to parse Retry-After header", "error", err)
+					retryAfter = 1
+				}
+
+			} else {
+				retryAfter = 1
+			}
+
+			slog.Warn("rate limit exceeded, retrying",
+				"retryAfter", retryAfter,
+				"totalRetries", fmt.Sprintf("%d/%d", attempt, maxRetries))
+		} else {
+			slog.Warn("connectwise API request failed", "statusCode", res.StatusCode,
+				"totalRetries", fmt.Sprintf("%d/%d", attempt, maxRetries))
+		}
+
+		err = res.Body.Close()
+		if err != nil {
+			return err
+		}
+		time.Sleep(time.Duration(retryAfter) * time.Second)
 	}
 
-	data, err := io.ReadAll(res.Body)
-	if err != nil {
-		return fmt.Errorf("an error occured reading the response body: %w", err)
-	}
-
-	if err := json.Unmarshal(data, target); err != nil {
-		return fmt.Errorf("an error occured unmarshaling the response to JSON: %w", err)
-	}
-
-	return nil
+	return fmt.Errorf("max retries exceeded")
 }
 
 func basicAuth(username, password string) string {
