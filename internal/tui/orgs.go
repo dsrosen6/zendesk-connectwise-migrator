@@ -38,8 +38,8 @@ type allOrgs struct {
 
 type orgMigrationDetails struct {
 	tag        *tagDetails
-	zendeskOrg zendesk.Organization
-	psaOrg     psa.Company
+	zendeskOrg *zendesk.Organization
+	psaOrg     *psa.Company
 }
 
 type erroredOrg struct {
@@ -185,7 +185,7 @@ func (m *orgCheckerModel) getOrgs() tea.Cmd {
 
 			for _, org := range orgs {
 				md := &orgMigrationDetails{
-					zendeskOrg: org,
+					zendeskOrg: &org,
 					tag:        &tag,
 				}
 				m.orgs.master = append(m.orgs.master, md)
@@ -217,6 +217,11 @@ func (m *orgCheckerModel) checkOrg(org *orgMigrationDetails) tea.Cmd {
 			m.orgs.withTickets = append(m.orgs.withTickets, org)
 			if m.orgInPsa(org) {
 				slog.Debug("org in PSA", "orgName", org.zendeskOrg.Name)
+				if err := m.updateCompanyFieldValue(org); err != nil {
+					m.orgs.erroredOrgs = append(m.orgs.erroredOrgs, erroredOrg{org: org, err: err})
+					return nil
+				}
+
 				m.orgs.inPsa = append(m.orgs.inPsa, org)
 			} else {
 				slog.Debug("org not in PSA", "orgName", org.zendeskOrg.Name)
@@ -230,8 +235,30 @@ func (m *orgCheckerModel) checkOrg(org *orgMigrationDetails) tea.Cmd {
 }
 
 func (m *orgCheckerModel) orgInPsa(org *orgMigrationDetails) bool {
-	_, err := m.migrationClient.MatchZdOrgToCwCompany(ctx, org.zendeskOrg)
+	var err error
+	org.psaOrg, err = m.migrationClient.MatchZdOrgToCwCompany(ctx, org.zendeskOrg)
 	return err == nil
+}
+
+func (m *orgCheckerModel) updateCompanyFieldValue(org *orgMigrationDetails) error {
+	if org.zendeskOrg.OrganizationFields.PSACompanyId != 0 {
+		slog.Debug("zendesk org already has PSA company id field", "orgName", org.zendeskOrg.Name, "psaCompanyId", org.zendeskOrg.OrganizationFields.PSACompanyId)
+		return nil
+	}
+
+	if org.psaOrg.Id != 0 {
+		org.zendeskOrg.OrganizationFields.PSACompanyId = int64(org.psaOrg.Id)
+
+		var err error
+		org.zendeskOrg, err = m.migrationClient.ZendeskClient.UpdateOrganization(ctx, org.zendeskOrg)
+		if err != nil {
+			return fmt.Errorf("updating organization with PSA company id: %w", err)
+		}
+
+		slog.Info("updated zendesk organization with PSA company id", "orgName", org.zendeskOrg.Name, "psaCompanyId", org.psaOrg.Id)
+	}
+
+	return nil
 }
 
 func switchStatus(s status) tea.Cmd {

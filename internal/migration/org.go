@@ -6,10 +6,10 @@ import (
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/zendesk"
 )
 
-func (c *Client) MatchZdOrgToCwCompany(ctx context.Context, org zendesk.Organization) (psa.Company, error) {
+func (c *Client) MatchZdOrgToCwCompany(ctx context.Context, org *zendesk.Organization) (*psa.Company, error) {
 	comp, err := c.CwClient.GetCompanyByName(ctx, org.Name)
 	if err != nil {
-		return psa.Company{}, err
+		return nil, err
 	}
 
 	return comp, nil

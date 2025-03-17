@@ -1,8 +1,11 @@
 package zendesk
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"log/slog"
 	"time"
 )
 
@@ -39,7 +42,7 @@ func (c *Client) GetOrganizationsWithQuery(ctx context.Context, q SearchQuery) (
 	currentPage := &OrgSearchResp{}
 
 	if err := c.searchRequest(ctx, OrgSearchType, q, &currentPage); err != nil {
-		return nil, fmt.Errorf("an error occured getting the organizations: %w", err)
+		return nil, fmt.Errorf("getting the organizations: %w", err)
 	}
 
 	allOrgs = append(allOrgs, currentPage.Organizations...)
@@ -47,7 +50,7 @@ func (c *Client) GetOrganizationsWithQuery(ctx context.Context, q SearchQuery) (
 	for currentPage.NextPage != "" {
 		nextPage := &OrgSearchResp{}
 		if err := c.ApiRequest(ctx, "GET", currentPage.NextPage, nil, &nextPage); err != nil {
-			return nil, fmt.Errorf("an error occured getting next page of organizations: %w", err)
+			return nil, fmt.Errorf("getting next page of organizations: %w", err)
 		}
 
 		allOrgs = append(allOrgs, nextPage.Organizations...)
@@ -64,8 +67,25 @@ func (c *Client) GetOrganization(ctx context.Context, orgId int64) (Organization
 	}
 
 	if err := c.ApiRequest(ctx, "GET", u, nil, &r); err != nil {
-		return Organization{}, fmt.Errorf("an error occured getting the organization: %w", err)
+		return Organization{}, fmt.Errorf("getting the organization: %w", err)
 	}
 
 	return r.Organization, nil
+}
+
+func (c *Client) UpdateOrganization(ctx context.Context, org *Organization) (*Organization, error) {
+	slog.Debug("updating organization", "orgId", org.Id, "fields", org.OrganizationFields)
+	u := fmt.Sprintf("%s/organizations/%d", c.baseUrl, org.Id)
+	jsonBytes, err := json.Marshal(org)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling organization to json: %w", err)
+	}
+
+	body := bytes.NewReader(jsonBytes)
+
+	if err := c.ApiRequest(ctx, "PUT", u, body, org); err != nil {
+		return nil, fmt.Errorf("updating the organization: %w", err)
+	}
+
+	return org, nil
 }
