@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"time"
 )
 
@@ -16,6 +15,9 @@ type OrgSearchResp struct {
 	Count         int            `json:"count"`
 }
 
+type OrgBody struct {
+	Organization *Organization `json:"organization"`
+}
 type Organization struct {
 	Url                string             `json:"url"`
 	Id                 int64              `json:"id"`
@@ -74,9 +76,13 @@ func (c *Client) GetOrganization(ctx context.Context, orgId int64) (Organization
 }
 
 func (c *Client) UpdateOrganization(ctx context.Context, org *Organization) (*Organization, error) {
-	slog.Debug("updating organization", "orgId", org.Id, "fields", org.OrganizationFields)
 	u := fmt.Sprintf("%s/organizations/%d", c.baseUrl, org.Id)
-	jsonBytes, err := json.Marshal(org)
+
+	o := &OrgBody{
+		Organization: org,
+	}
+
+	jsonBytes, err := json.Marshal(o)
 	if err != nil {
 		return nil, fmt.Errorf("marshaling organization to json: %w", err)
 	}

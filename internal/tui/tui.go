@@ -91,14 +91,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		verticalMarginHeight := mainHeaderHeight + mainFooterHeight + viewportDvdrHeight
 
 		if !m.ready {
-			m.viewport = viewport.New(msg.Width, (msg.Height-verticalMarginHeight)*1/2)
+			m.viewport = viewport.New(msg.Width, (msg.Height-verticalMarginHeight)*2/3)
 
 			m.verticalLeftForMainView = m.windowHeight - verticalMarginHeight - m.viewport.Height
 			m.viewport.SetContent(m.viewportBody)
 			m.ready = true
+
 		} else {
 			m.viewport.Width = msg.Width
-			m.viewport.Height = (msg.Height - verticalMarginHeight) * 1 / 2
+			m.viewport.Height = (msg.Height - verticalMarginHeight) * 2 / 3
 			m.viewport.SetContent(m.viewportBody)
 		}
 
