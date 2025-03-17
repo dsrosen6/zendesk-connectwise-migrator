@@ -5,7 +5,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/migration"
-	"github.com/dsrosen/zendesk-connectwise-migrator/internal/psa"
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/zendesk"
 	"log/slog"
 	"slices"
@@ -30,17 +29,8 @@ type tagDetails struct {
 type allOrgs struct {
 	master      []*orgMigrationDetails
 	checked     []*orgMigrationDetails
+	toMigrate   []*orgMigrationDetails
 	erroredOrgs []erroredOrg
-}
-
-type orgMigrationDetails struct {
-	zendeskOrg *zendesk.Organization
-	psaOrg     *psa.Company
-
-	tag        *tagDetails
-	hasTickets bool
-
-	ready bool
 }
 
 type erroredOrg struct {
@@ -102,8 +92,8 @@ func (m *orgCheckerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case switchStatusMsg(done):
 			slog.Debug("org checker: done checking orgs")
 			m.status = done
-			cmd = m.constructOutput()
-			cmds = append(cmds, cmd)
+			cmds = append(cmds, m.constructOutput())
+			cmds = append(cmds, sendOrgsCmd(m.orgs.toMigrate))
 		}
 	}
 
@@ -234,6 +224,7 @@ func (m *orgCheckerModel) checkOrg(org *orgMigrationDetails) tea.Cmd {
 
 		if org.psaOrg != nil && org.zendeskOrg.OrganizationFields.PSACompanyId == int64(org.psaOrg.Id) {
 			org.ready = true
+			m.orgs.toMigrate = append(m.orgs.toMigrate, org)
 		}
 
 		m.orgs.checked = append(m.orgs.checked, org)

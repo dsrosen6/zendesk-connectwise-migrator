@@ -9,6 +9,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/migration"
+	"github.com/dsrosen/zendesk-connectwise-migrator/internal/psa"
+	"github.com/dsrosen/zendesk-connectwise-migrator/internal/zendesk"
 	"log/slog"
 	"strings"
 	"time"
@@ -27,16 +29,40 @@ var (
 type Model struct {
 	migrationClient *migration.Client
 	currentModel    tea.Model
-	quitting        bool
-	ready           bool
+	migrationData   *migrationData
 	dimensions
 	viewport viewPort
+	quitting bool
+}
+
+type migrationData struct {
+	orgsToMigrate []*orgMigrationDetails
+}
+
+type orgMigrationDetails struct {
+	zendeskOrg *zendesk.Organization
+	psaOrg     *psa.Company
+
+	usersToMigrate []*userMigrationDetails
+	// TODO: ticketsToMigrate []*ticketMigrationDetails
+
+	tag        *tagDetails
+	hasTickets bool
+
+	ready bool
+}
+
+type userMigrationDetails struct {
+	zendeskUser *zendesk.User
+	psaContact  *psa.Contact
+	ready       bool
 }
 
 type viewPort struct {
 	model viewport.Model
 	title string
 	body  string
+	ready bool
 }
 
 type dimensions struct {
@@ -56,6 +82,14 @@ type timeConversionDetails struct {
 
 type switchModelMsg tea.Model
 
+type sendOrgsMsg []*orgMigrationDetails
+
+func sendOrgsCmd(orgs []*orgMigrationDetails) tea.Cmd {
+	return func() tea.Msg {
+		return sendOrgsMsg(orgs)
+	}
+}
+
 func NewModel(cx context.Context, mc *migration.Client) Model {
 	ctx = cx
 
@@ -68,6 +102,7 @@ func NewModel(cx context.Context, mc *migration.Client) Model {
 	return Model{
 		migrationClient: mc,
 		currentModel:    mm,
+		migrationData:   &migrationData{},
 		viewport: viewPort{
 			title: "Results",
 		},
@@ -96,12 +131,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		viewportDvdrHeight := lipgloss.Height(m.viewportDivider())
 		verticalMarginHeight := mainHeaderHeight + mainFooterHeight + viewportDvdrHeight
 
-		if !m.ready {
+		if !m.viewport.ready {
 			m.viewport.model = viewport.New(msg.Width, (msg.Height-verticalMarginHeight)*2/3)
 
 			m.verticalLeftForMainView = m.windowHeight - verticalMarginHeight - m.viewport.model.Height
 			m.viewport.model.SetContent(m.viewport.body)
-			m.ready = true
+			m.viewport.ready = true
 
 		} else {
 			m.viewport.model.Width = msg.Width
@@ -122,14 +157,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case switchModelMsg:
-		slog.Debug("got switchModelCmd", "model", msg)
+		slog.Debug("received new model via switchModelMsg", "model", msg)
 		m.currentModel = msg
 		cmds = append(cmds, m.currentModel.Init())
 
 	case updateResultsMsg:
-		slog.Debug("got updateViewportCmd")
+		slog.Debug("received updated viewport content via updateResultsMsg")
 		m.viewport.title = msg.title
 		m.viewport.body = msg.body
+
+	case sendOrgsMsg:
+		slog.Debug("received orgs via sendOrgsMsg")
+		m.migrationData.orgsToMigrate = msg
 	}
 
 	spnr, cmd = spnr.Update(msg)
@@ -150,7 +189,7 @@ func (m Model) View() string {
 		return ""
 	}
 
-	if !m.ready {
+	if !m.viewport.ready {
 		return runSpinner("Initializing...")
 	}
 
@@ -212,6 +251,10 @@ func (m Model) viewportDivider() string {
 	return m.titleBar(m.viewport.title)
 }
 
+func (m Model) appFooter() string {
+	return m.titleBar("C: Copy Results | R: Return to Main Menu | ESC: Exit Migration Tool")
+}
+
 func (m Model) titleBar(t string) string {
 	titleBox := titleStyle().Render(t)
 
@@ -220,10 +263,6 @@ func (m Model) titleBar(t string) string {
 	dividerLength := m.windowWidth - titleBoxWidth
 
 	return lipgloss.JoinHorizontal(lipgloss.Center, titleBox, line(dividerLength))
-}
-
-func (m Model) appFooter() string {
-	return m.titleBar("CTRL+C: Copy Results | ESC: Exit")
 }
 
 func line(w int) string {
