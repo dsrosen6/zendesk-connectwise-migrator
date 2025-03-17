@@ -14,7 +14,7 @@ type mainMenuModel struct {
 
 const (
 	mainMenuChoice = "mainMenuChoice"
-	orgChecker     = "orgChecker"
+	orgMigrator    = "orgMigrator"
 )
 
 func newMainMenuModel(mc *migration.Client) *mainMenuModel {
@@ -42,7 +42,7 @@ func (m *mainMenuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.form.State == huh.StateCompleted {
 		choice := m.form.GetString(mainMenuChoice)
 		switch choice {
-		case orgChecker:
+		case orgMigrator:
 			slog.Debug("switching to org checker model")
 			cmds = append(cmds, switchModel(newOrgCheckerModel(m.migrationClient)))
 		}
@@ -60,7 +60,7 @@ func mainMenuForm() *huh.Form {
 		huh.NewGroup(
 			huh.NewSelect[string]().
 				Options(
-					huh.NewOption("Org Checker", orgChecker),
+					huh.NewOption("Migrate Organizations", orgMigrator),
 				).
 				Key(mainMenuChoice),
 		)).WithShowHelp(false).WithTheme(migration.CustomHuhTheme())

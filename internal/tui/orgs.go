@@ -168,7 +168,7 @@ func (m *orgCheckerModel) getTagDetails(tags []migration.TagDetails) tea.Cmd {
 
 func (m *orgCheckerModel) getOrgs() tea.Cmd {
 	return func() tea.Msg {
-		slog.Debug("getting orgs for tags", "tags", m.migrationClient.Cfg.Zendesk.TagsToMigrate)
+		slog.Info("getting orgs for tags", "tags", m.migrationClient.Cfg.Zendesk.TagsToMigrate)
 		for _, tag := range m.tags {
 			slog.Debug("getting orgs for tag", "tag", tag.name)
 			q := &zendesk.SearchQuery{}
@@ -226,10 +226,14 @@ func (m *orgCheckerModel) checkOrg(org *orgMigrationDetails) tea.Cmd {
 			return nil
 		}
 
-		if org.psaOrg != nil {
-			if org.zendeskOrg.OrganizationFields.PSACompanyId == int64(org.psaOrg.Id) {
-				org.ready = true
-			}
+		if err := m.updateCompanyFieldValue(org); err != nil {
+			slog.Error("error updating company field value in zendesk", "error", err)
+			m.orgs.erroredOrgs = append(m.orgs.erroredOrgs, erroredOrg{org: org, err: err})
+			return nil
+		}
+
+		if org.psaOrg != nil && org.zendeskOrg.OrganizationFields.PSACompanyId == int64(org.psaOrg.Id) {
+			org.ready = true
 		}
 
 		m.orgs.checked = append(m.orgs.checked, org)
@@ -239,7 +243,7 @@ func (m *orgCheckerModel) checkOrg(org *orgMigrationDetails) tea.Cmd {
 }
 
 func (m *orgCheckerModel) updateCompanyFieldValue(org *orgMigrationDetails) error {
-	if org.zendeskOrg.OrganizationFields.PSACompanyId != 0 {
+	if org.zendeskOrg.OrganizationFields.PSACompanyId == int64(org.psaOrg.Id) {
 		slog.Debug("zendesk org already has PSA company id field", "orgName", org.zendeskOrg.Name, "psaCompanyId", org.zendeskOrg.OrganizationFields.PSACompanyId)
 		return nil
 	}
@@ -270,7 +274,11 @@ func switchStatus(s status) tea.Cmd {
 
 func (m *orgCheckerModel) constructOutput() tea.Cmd {
 	return func() tea.Msg {
-		var withTickets, notInPsa, notReady, ready, errored []string
+		var tagNames, withTickets, notInPsa, notReady, ready, errored []string
+
+		for _, tag := range m.tags {
+			tagNames = append(tagNames, tag.name)
+		}
 
 		for _, org := range m.orgs.checked {
 			if org.hasTickets {
@@ -293,6 +301,7 @@ func (m *orgCheckerModel) constructOutput() tea.Cmd {
 			errored = append(errored, summary)
 		}
 
+		slices.Sort(tagNames)
 		slices.Sort(withTickets)
 		slices.Sort(notInPsa)
 		slices.Sort(notReady)
@@ -306,14 +315,20 @@ func (m *orgCheckerModel) constructOutput() tea.Cmd {
 			Bold(true).
 			Render("Statistics")
 
-		output += fmt.Sprintf("\nWith Tickets: %d\n"+
+		output += fmt.Sprintf("\nTags Checked: %s\n"+
+			"With Tickets: %d\n"+
 			"Not in PSA: %d\n"+
 			"Ready for User Migration: %d/%d\n"+
 			"Errored: %d\n\n",
+			strings.Join(tagNames, ", "),
 			len(withTickets),
 			len(notInPsa),
 			len(ready), len(withTickets),
 			len(errored))
+
+		if len(withTickets) == len(ready) {
+			output += "All Organizations are Ready for User Migrations!\n\n"
+		}
 
 		if len(notInPsa) > 0 {
 			output += lipgloss.NewStyle().
