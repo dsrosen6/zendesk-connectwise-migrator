@@ -75,6 +75,7 @@ type orgMigrationDetails struct {
 	UserMigSelected bool                    `json:"user_migration_selected"`
 	UsersToMigrate  []*userMigrationDetails `json:"users_to_migrate"`
 	UserMigErrors   []error                 `json:"user_migration_errors"`
+	UserMigDone     bool                    `json:"user_migration_done"`
 	// TODO: ticketsToMigrate []*ticketMigrationDetails
 }
 
@@ -212,6 +213,12 @@ func (m *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					switchModel(m.submodels.orgMigration),
 					toggleViewport(true))
 			}
+		case " ":
+			if m.currentModel == m.submodels.orgMigration && m.submodels.orgMigration.(*orgMigrationModel).status == awaitingStart {
+				slog.Debug("org checker: user pressed space to start")
+				return m, switchOrgMigStatus(gettingTags)
+			}
+			
 		case "u":
 			if m.activeTab != tabUsers {
 				m.activeTab = tabUsers
@@ -222,7 +229,7 @@ func (m *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.submodels.userMigration.(*userMigrationModel).status != pickingOrgs {
 					cmds = append(cmds, switchUserMigStatus(pickingOrgs))
 				}
-				
+
 				return m, tea.Sequence(cmds...)
 			}
 		}

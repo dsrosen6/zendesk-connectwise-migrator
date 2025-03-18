@@ -109,7 +109,8 @@ func (c *Client) apiRequest(ctx context.Context, method, url string, body io.Rea
 				"retryAfter", retryAfter,
 				"totalRetries", fmt.Sprintf("%d/%d", attempt, maxRetries))
 		} else {
-			slog.Warn("zendesk API request failed", "statusCode", res.StatusCode,
+			retryAfter = 15
+			slog.Warn("zendesk API request failed - waiting 15 seconds if retries remain", "statusCode", res.StatusCode,
 				"totalRetries", fmt.Sprintf("%d/%d", attempt, maxRetries))
 		}
 

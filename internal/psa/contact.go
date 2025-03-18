@@ -5,15 +5,22 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/url"
 )
 
 type ContactsResp []Contact
 
-func (c *Client) PostContact(ctx context.Context, contact *Contact) (*Contact, error) {
+type NoUserFoundErr struct{}
+
+func (e NoUserFoundErr) Error() string {
+	return "No user was found with the provided email"
+}
+
+func (c *Client) PostContact(ctx context.Context, payload *ContactPostBody) (*Contact, error) {
 	u := fmt.Sprintf("%s/company/contacts", baseUrl)
 
-	jsonBytes, err := json.Marshal(contact)
+	jsonBytes, err := json.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("marshaling contact to json: %w", err)
 	}
@@ -22,6 +29,7 @@ func (c *Client) PostContact(ctx context.Context, contact *Contact) (*Contact, e
 	respContact := Contact{}
 
 	if err := c.ApiRequest(ctx, "POST", u, body, &respContact); err != nil {
+		slog.Error("failed to post post new connectwise contact", "body", string(jsonBytes))
 		return nil, fmt.Errorf("an error occured creating the contact: %w", err)
 	}
 
@@ -38,7 +46,7 @@ func (c *Client) GetContactByEmail(ctx context.Context, email string) (*Contact,
 	}
 
 	if len(contacts) == 0 {
-		return nil, nil
+		return nil, NoUserFoundErr{}
 	}
 
 	if len(contacts) != 1 {

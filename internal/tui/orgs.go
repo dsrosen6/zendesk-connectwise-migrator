@@ -80,15 +80,6 @@ func (m *orgMigrationModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 
-	case tea.KeyMsg:
-		switch msg.String() {
-		case " ":
-			if m.status == awaitingStart {
-				slog.Debug("org checker: user pressed space to start")
-				return m, switchOrgMigStatus(gettingTags)
-			}
-		}
-
 	case switchOrgMigStatusMsg:
 		switch msg {
 		case switchOrgMigStatusMsg(gettingTags):
@@ -108,7 +99,7 @@ func (m *orgMigrationModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			for _, org := range m.data.Orgs {
 				checkOrgCmds = append(checkOrgCmds, m.checkOrg(org))
 			}
-			return m, tea.Batch(checkOrgCmds...)
+			return m, tea.Sequence(checkOrgCmds...)
 
 		case switchOrgMigStatusMsg(orgMigDone):
 			slog.Debug("org checker: done checking orgs")
@@ -293,7 +284,7 @@ func (m *orgMigrationModel) matchZdOrgToCwCompany(org *zendesk.Organization) (*p
 
 func (m *orgMigrationModel) constructOutput() tea.Cmd {
 	return func() tea.Msg {
-		var tagNames, withTickets, notInPsa, notReady, readyUsers, errors []string
+		var tagNames, withTickets, notInPsa, notReady, readyUsers, orgErrors []string
 
 		for _, tag := range m.tags {
 			tagNames = append(tagNames, tag.name)
@@ -316,7 +307,7 @@ func (m *orgMigrationModel) constructOutput() tea.Cmd {
 
 			if len(org.OrgMigErrors) > 0 {
 				for _, e := range org.OrgMigErrors {
-					errors = append(errors, fmt.Sprintf("%s: %s", org.ZendeskOrg.Name, e))
+					orgErrors = append(orgErrors, fmt.Sprintf("%s: %s", org.ZendeskOrg.Name, e))
 				}
 			}
 		}
@@ -326,7 +317,7 @@ func (m *orgMigrationModel) constructOutput() tea.Cmd {
 		slices.Sort(notInPsa)
 		slices.Sort(notReady)
 		slices.Sort(readyUsers)
-		slices.Sort(errors)
+		slices.Sort(orgErrors)
 
 		var output string
 
@@ -344,7 +335,7 @@ func (m *orgMigrationModel) constructOutput() tea.Cmd {
 			len(withTickets),
 			len(notInPsa),
 			len(readyUsers), len(withTickets),
-			len(errors))
+			len(orgErrors))
 
 		if len(withTickets) == len(readyUsers) {
 			output += "All Organizations are Ready for User Migrations!\n\n"
@@ -374,12 +365,12 @@ func (m *orgMigrationModel) constructOutput() tea.Cmd {
 			output += fmt.Sprintf("\n%s\n\n", strings.Join(readyUsers, "\n"))
 		}
 
-		if len(errors) > 0 {
+		if len(orgErrors) > 0 {
 			output += lipgloss.NewStyle().
 				Border(lipgloss.NormalBorder(), false, false, true, false).
 				Bold(true).
 				Render("Errors")
-			output += fmt.Sprintf("\n%s\n", strings.Join(errors, "\n"))
+			output += fmt.Sprintf("\n%s\n", strings.Join(orgErrors, "\n"))
 		}
 
 		return updateResultsMsg{body: output}
