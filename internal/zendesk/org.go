@@ -18,6 +18,7 @@ type OrgSearchResp struct {
 type OrgBody struct {
 	Organization *Organization `json:"organization"`
 }
+
 type Organization struct {
 	Url                string             `json:"url"`
 	Id                 int64              `json:"id"`
@@ -78,11 +79,11 @@ func (c *Client) GetOrganization(ctx context.Context, orgId int64) (Organization
 func (c *Client) UpdateOrganization(ctx context.Context, org *Organization) (*Organization, error) {
 	u := fmt.Sprintf("%s/organizations/%d", c.baseUrl, org.Id)
 
-	o := &OrgBody{
+	b := &OrgBody{
 		Organization: org,
 	}
 
-	jsonBytes, err := json.Marshal(o)
+	jsonBytes, err := json.Marshal(b)
 	if err != nil {
 		return nil, fmt.Errorf("marshaling organization to json: %w", err)
 	}

@@ -14,6 +14,10 @@ type UsersResp struct {
 	Links Links  `json:"links"`
 }
 
+type UserBody struct {
+	User *User `json:"user"`
+}
+
 type User struct {
 	Id                   int           `json:"id"`
 	Url                  string        `json:"url"`
@@ -58,22 +62,28 @@ type UserFields struct {
 	PSAContactId int `json:"psa_contact"`
 }
 
-func (c *Client) UpdateUser(ctx context.Context, user *User) error {
+func (c *Client) UpdateUser(ctx context.Context, user *User) (*User, error) {
 	url := fmt.Sprintf("%s/users/%d", c.baseUrl, user.Id)
 
-	jsonBytes, err := json.Marshal(user)
+	b := &UserBody{
+		User: user,
+	}
+
+	jsonBytes, err := json.Marshal(b)
 	if err != nil {
-		return fmt.Errorf("marshaling user to json: %w", err)
+		return nil, fmt.Errorf("marshaling user to json: %w", err)
 	}
 
 	body := bytes.NewReader(jsonBytes)
 
-	if err := c.ApiRequest(ctx, "PUT", url, body, nil); err != nil {
-		return fmt.Errorf("an error occured updating the user: %w", err)
+	u := &UserBody{User: user}
+	if err := c.ApiRequest(ctx, "PUT", url, body, u); err != nil {
+		return nil, fmt.Errorf("an error occured updating the user: %w", err)
 	}
 
-	return nil
+	return u.User, nil
 }
+
 func (c *Client) GetUser(ctx context.Context, userId int64) (User, error) {
 	url := fmt.Sprintf("%s/users/%d", c.baseUrl, userId)
 	u := &User{}

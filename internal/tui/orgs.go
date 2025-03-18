@@ -1,10 +1,12 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/migration"
+	"github.com/dsrosen/zendesk-connectwise-migrator/internal/psa"
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/zendesk"
 	"log/slog"
 	"slices"
@@ -233,7 +235,7 @@ func (m *orgMigrationModel) checkOrg(org *orgMigrationDetails) tea.Cmd {
 			return nil
 		}
 
-		org.psaOrg, err = m.client.MatchZdOrgToCwCompany(ctx, org.zendeskOrg)
+		org.psaOrg, err = m.matchZdOrgToCwCompany(org.zendeskOrg)
 		if err != nil {
 			slog.Warn("org is not in PSA", "orgName", org.zendeskOrg.Name)
 			m.checkedTotal++
@@ -241,7 +243,7 @@ func (m *orgMigrationModel) checkOrg(org *orgMigrationDetails) tea.Cmd {
 		}
 
 		if err := m.updateCompanyFieldValue(org); err != nil {
-			slog.Error("error updating company field value in zendesk", "error", err)
+			slog.Error("updating company field value in zendesk", "error", err)
 			org.orgMigErrors = append(org.orgMigErrors, err)
 			m.checkedTotal++
 			return nil
@@ -275,10 +277,18 @@ func (m *orgMigrationModel) updateCompanyFieldValue(org *orgMigrationDetails) er
 		slog.Info("updated zendesk organization with PSA company id", "orgName", org.zendeskOrg.Name, "psaCompanyId", org.psaOrg.Id)
 		return nil
 	} else {
-		slog.Warn("org psa id is 0 - cannot update psa_company field in zendesk", "orgName", org.zendeskOrg.Name)
+		slog.Error("org psa id is 0 - cannot update psa_company field in zendesk", "orgName", org.zendeskOrg.Name)
+		return errors.New("org psa id is 0 - cannot update psa_company field in zendesk")
+	}
+}
+
+func (m *orgMigrationModel) matchZdOrgToCwCompany(org *zendesk.Organization) (*psa.Company, error) {
+	comp, err := m.client.CwClient.GetCompanyByName(ctx, org.Name)
+	if err != nil {
+		return nil, err
 	}
 
-	return nil
+	return comp, nil
 }
 
 func (m *orgMigrationModel) constructOutput() tea.Cmd {

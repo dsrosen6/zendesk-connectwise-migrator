@@ -105,7 +105,7 @@ func (c *Client) apiRequest(ctx context.Context, method, url string, body io.Rea
 				retryAfter = 1
 			}
 
-			slog.Warn("rate limit exceeded, retrying",
+			slog.Warn("zendesk rate limit exceeded, retrying",
 				"retryAfter", retryAfter,
 				"totalRetries", fmt.Sprintf("%d/%d", attempt, maxRetries))
 		} else {

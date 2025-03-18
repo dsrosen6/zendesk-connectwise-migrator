@@ -77,7 +77,8 @@ type orgMigrationDetails struct {
 type userMigrationDetails struct {
 	zendeskUser *zendesk.User
 	psaContact  *psa.Contact
-	ready       bool
+	psaCompany  *psa.Company
+	migrated    bool
 }
 
 type viewPort struct {

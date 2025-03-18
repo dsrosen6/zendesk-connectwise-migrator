@@ -52,12 +52,3 @@ func (cfg *Config) runZendeskTagDateForm() error {
 
 	return nil
 }
-
-func findTagByName(tags []TagDetails, name string) *TagDetails {
-	for _, tag := range tags {
-		if tag.Name == name {
-			return &tag
-		}
-	}
-	return nil
-}
