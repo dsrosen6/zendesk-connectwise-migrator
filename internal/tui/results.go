@@ -13,18 +13,6 @@ type toggleViewportMsg struct {
 	on bool
 }
 
-func sendResultsCmd(body string) tea.Cmd {
-	return func() tea.Msg {
-		return updateResultsMsg{
-			body: body,
-		}
-	}
-}
-
-func clearViewport() tea.Msg {
-	return updateResultsMsg{body: ""}
-}
-
 func toggleViewport(on bool) tea.Cmd {
 	return func() tea.Msg {
 		return toggleViewportMsg{on}

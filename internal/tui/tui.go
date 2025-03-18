@@ -12,18 +12,12 @@ import (
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/psa"
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/zendesk"
 	"log/slog"
-	"strings"
 	"time"
 )
 
 var (
 	ctx  context.Context
 	spnr spinner.Model
-
-	titleStyle = func() lipgloss.Style {
-		b := lipgloss.NormalBorder()
-		return lipgloss.NewStyle().BorderStyle(b).Padding(0, 1)
-	}
 
 	// App Dimensions
 	windowWidth             int
@@ -33,12 +27,23 @@ var (
 	viewportDvdrHeight      int
 	verticalMarginHeight    int
 	verticalLeftForMainView int
+
+	menuTabs = []menuTab{tabMainPage, tabOrgs, tabUsers}
+)
+
+type menuTab string
+
+const (
+	tabMainPage menuTab = "M | Main Page"
+	tabOrgs     menuTab = "O | Organizations"
+	tabUsers    menuTab = "U | Users"
 )
 
 type Model struct {
 	migrationClient *migration.Client
 	currentModel    tea.Model
 	migrationData   *migrationData
+	activeTab       menuTab
 	viewport        viewPort
 	quitting        bool
 }
@@ -110,6 +115,7 @@ func NewModel(cx context.Context, mc *migration.Client) *Model {
 		migrationClient: mc,
 		currentModel:    mm,
 		migrationData:   data,
+		activeTab:       tabMainPage,
 		viewport:        viewPort{title: "Results", show: false},
 	}
 }
@@ -158,10 +164,28 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, tea.Quit)
 		case "c":
 			cmds = append(cmds, copyToClipboard(m.viewport.body))
-		case "r":
-			cmds = append(cmds,
-				switchModel(newMainMenuModel(m.migrationClient, m.migrationData)),
-				toggleViewport(false))
+		case "m":
+			if m.activeTab != tabMainPage {
+				m.activeTab = tabMainPage
+				cmds = append(cmds,
+					switchModel(newMainMenuModel(m.migrationClient, m.migrationData)),
+					toggleViewport(false))
+			}
+		case "o":
+			// TODO: figure out why resize happens twice on double o press
+			if m.activeTab != tabOrgs {
+				m.activeTab = tabOrgs
+				cmds = append(cmds,
+					switchModel(newOrgCheckerModel(m.migrationClient)),
+					toggleViewport(true))
+			}
+		case "u":
+			if m.activeTab != tabUsers {
+				m.activeTab = tabUsers
+				cmds = append(cmds,
+					switchModel(newUserMigrationModel(m.migrationClient, m.migrationData)),
+					toggleViewport(false))
+			}
 		}
 
 	case switchModelMsg:
@@ -174,6 +198,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.viewport.body = msg.body
 
 	case toggleViewportMsg:
+		slog.Debug("received toggle viewport msg", "on", msg.on)
 		m.viewport.show = msg.on
 		return m, calculateDimensions(windowWidth, windowHeight, m.viewport)
 
@@ -212,7 +237,7 @@ func (m *Model) View() string {
 		PaddingLeft(1).
 		Render(m.currentModel.View())
 
-	views := []string{appHeader(), mainView}
+	views := []string{menuBar(menuTabs, m.activeTab), mainView}
 
 	if m.viewport.show {
 		views = append(views, viewportDivider(m.viewport), m.viewport.model.View(), appFooter())
@@ -264,41 +289,6 @@ func convertDateStringsToTimeTime(details *timeConversionDetails) (time.Time, ti
 	return startDate, endDate, nil
 }
 
-func appHeader() string {
-	return titleBar("Ticket Migration Utility")
-}
-
-func viewportDivider(v viewPort) string {
-	return titleBar(v.title)
-}
-
-func appFooter() string {
-	return titleBar("C: Copy Results | R: Main Menu | ESC: Exit")
-}
-
-func titleBar(t string) string {
-	titleBox := titleStyle().Render(t)
-
-	titleBoxWidth := lipgloss.Width(titleBox)
-
-	dividerLength := windowWidth - titleBoxWidth
-
-	return lipgloss.JoinHorizontal(lipgloss.Center, titleBox, line(dividerLength))
-}
-
-func line(w int) string {
-	line := strings.Repeat("─", maxRepeats(0, w))
-	return line
-}
-
-func maxRepeats(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
-// TODO: add an on screen instruction for this
 func copyToClipboard(s string) tea.Cmd {
 	return func() tea.Msg {
 		if err := clipboard.WriteAll(s); err != nil {
@@ -311,10 +301,11 @@ func copyToClipboard(s string) tea.Cmd {
 }
 
 func calculateDimensions(w, h int, v viewPort) tea.Cmd {
+	dummyMenuTabs := []menuTab{tabMainPage}
 	return func() tea.Msg {
 		windowWidth = w
 		windowHeight = h
-		mainHeaderHeight = lipgloss.Height(appHeader())
+		mainHeaderHeight = lipgloss.Height(menuBar(dummyMenuTabs, dummyMenuTabs[0]))
 		mainFooterHeight = lipgloss.Height(appFooter())
 		viewportDvdrHeight = lipgloss.Height(viewportDivider(v))
 		return calculateDimensionsMsg{}

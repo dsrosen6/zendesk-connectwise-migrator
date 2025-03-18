@@ -49,6 +49,7 @@ func switchOrgMigStatus(s orgMigStatus) tea.Cmd {
 }
 
 const (
+	awaitingStart      orgMigStatus = "awaitingStart"
 	gettingTags        orgMigStatus = "gettingTags"
 	gettingZendeskOrgs orgMigStatus = "gettingZendeskOrgs"
 	comparingOrgs      orgMigStatus = "comparingOrgs"
@@ -59,12 +60,12 @@ func newOrgCheckerModel(mc *migration.Client) *orgCheckerModel {
 	return &orgCheckerModel{
 		migrationClient: mc,
 		orgs:            &allOrgs{},
-		status:          gettingZendeskOrgs,
+		status:          awaitingStart,
 	}
 }
 
 func (m *orgCheckerModel) Init() tea.Cmd {
-	return m.getTagDetails(m.migrationClient.Cfg.Zendesk.TagsToMigrate)
+	return nil
 }
 
 func (m *orgCheckerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -74,8 +75,23 @@ func (m *orgCheckerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	)
 
 	switch msg := msg.(type) {
+
+	case tea.KeyMsg:
+		switch msg.String() {
+		case " ":
+			if m.status == awaitingStart {
+				slog.Debug("org checker: user pressed space to start")
+				return m, switchOrgMigStatus(gettingTags)
+			}
+		}
+
 	case switchOrgMigStatusMsg:
 		switch msg {
+		case switchOrgMigStatusMsg(gettingTags):
+
+			m.status = gettingTags
+			return m, m.getTagDetails()
+
 		case switchOrgMigStatusMsg(gettingZendeskOrgs):
 			slog.Debug("org checker: got tags", "tags", m.tags)
 			m.status = gettingZendeskOrgs
@@ -111,6 +127,8 @@ func (m *orgCheckerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *orgCheckerModel) View() string {
 	var s, st string
 	switch m.status {
+	case awaitingStart:
+		st = "Press SPACE to begin org migration"
 	case gettingTags:
 		st = runSpinner("Getting Zendesk tags")
 	case gettingZendeskOrgs:
@@ -123,16 +141,18 @@ func (m *orgCheckerModel) View() string {
 
 	s += st
 
-	s += fmt.Sprintf("\n\nChecked: %d/%d\n"+
-		"Errored: %d\n",
-		len(m.orgs.checked), len(m.orgs.master), len(m.orgs.erroredOrgs))
+	if m.status != awaitingStart {
+		s += fmt.Sprintf("\n\nChecked: %d/%d\n"+
+			"Errored: %d\n",
+			len(m.orgs.checked), len(m.orgs.master), len(m.orgs.erroredOrgs))
+	}
 
 	return s
 }
 
-func (m *orgCheckerModel) getTagDetails(tags []migration.TagDetails) tea.Cmd {
+func (m *orgCheckerModel) getTagDetails() tea.Cmd {
 	return func() tea.Msg {
-		for _, tag := range tags {
+		for _, tag := range m.migrationClient.Cfg.Zendesk.TagsToMigrate {
 			tm := &timeConversionDetails{
 				startString:   tag.StartDate,
 				endString:     tag.EndDate,
