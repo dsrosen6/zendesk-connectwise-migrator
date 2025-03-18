@@ -12,12 +12,14 @@ import (
 	"time"
 )
 
-type orgCheckerModel struct {
-	migrationClient *migration.Client
-	tags            []tagDetails
-	orgs            *allOrgs
-	status          orgMigStatus
-	done            bool
+type orgMigrationModel struct {
+	client       *migration.Client
+	data         *migrationData
+	tags         []tagDetails
+	checkedTotal int
+	//orgs   *allOrgs
+	status orgMigStatus
+	done   bool
 }
 
 type tagDetails struct {
@@ -26,12 +28,12 @@ type tagDetails struct {
 	endDate   time.Time
 }
 
-type allOrgs struct {
-	master      []*orgMigrationDetails
-	checked     []*orgMigrationDetails
-	toMigrate   []*orgMigrationDetails
-	erroredOrgs []erroredOrg
-}
+//type allOrgs struct {
+//	master      []*orgMigrationDetails
+//	checked     []*orgMigrationDetails
+//	toMigrate   []*orgMigrationDetails
+//	erroredOrgs []erroredOrg
+//}
 
 type erroredOrg struct {
 	org *orgMigrationDetails
@@ -53,22 +55,22 @@ const (
 	gettingTags        orgMigStatus = "gettingTags"
 	gettingZendeskOrgs orgMigStatus = "gettingZendeskOrgs"
 	comparingOrgs      orgMigStatus = "comparingOrgs"
-	done               orgMigStatus = "done"
+	orgMigDone         orgMigStatus = "orgMigDone"
 )
 
-func newOrgCheckerModel(mc *migration.Client) *orgCheckerModel {
-	return &orgCheckerModel{
-		migrationClient: mc,
-		orgs:            &allOrgs{},
-		status:          awaitingStart,
+func newOrgMigrationModel(mc *migration.Client, data *migrationData) *orgMigrationModel {
+	return &orgMigrationModel{
+		client: mc,
+		data:   data,
+		status: awaitingStart,
 	}
 }
 
-func (m *orgCheckerModel) Init() tea.Cmd {
+func (m *orgMigrationModel) Init() tea.Cmd {
 	return nil
 }
 
-func (m *orgCheckerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *orgMigrationModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var (
 		cmd  tea.Cmd
 		cmds []tea.Cmd
@@ -98,25 +100,25 @@ func (m *orgCheckerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.getOrgs()
 
 		case switchOrgMigStatusMsg(comparingOrgs):
-			slog.Debug("org checker: got orgs", "total", len(m.orgs.master))
+			slog.Debug("org checker: got orgs", "total", len(m.data.orgs))
 			m.status = comparingOrgs
 			var checkOrgCmds []tea.Cmd
-			for _, org := range m.orgs.master {
+			for _, org := range m.data.orgs {
 				checkOrgCmds = append(checkOrgCmds, m.checkOrg(org))
 			}
 			return m, tea.Batch(checkOrgCmds...)
 
-		case switchOrgMigStatusMsg(done):
+		case switchOrgMigStatusMsg(orgMigDone):
 			slog.Debug("org checker: done checking orgs")
-			m.status = done
+			m.status = orgMigDone
 			cmds = append(cmds, m.constructOutput())
-			cmds = append(cmds, sendOrgsCmd(m.orgs.toMigrate))
+			cmds = append(cmds, sendOrgsCmd(m.data.orgs))
 		}
 	}
 
 	if m.status == comparingOrgs && !m.done {
-		if len(m.orgs.master) == len(m.orgs.checked) {
-			cmd = switchOrgMigStatus(done)
+		if len(m.data.orgs) == m.checkedTotal {
+			cmd = switchOrgMigStatus(orgMigDone)
 			cmds = append(cmds, cmd)
 		}
 	}
@@ -124,7 +126,7 @@ func (m *orgCheckerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-func (m *orgCheckerModel) View() string {
+func (m *orgMigrationModel) View() string {
 	var s, st string
 	switch m.status {
 	case awaitingStart:
@@ -135,29 +137,27 @@ func (m *orgCheckerModel) View() string {
 		st = runSpinner("Getting Zendesk orgs")
 	case comparingOrgs:
 		st = runSpinner("Checking for PSA orgs")
-	case done:
+	case orgMigDone:
 		st = "Done - press 'm' to return to the main menu"
 	}
 
 	s += st
 
 	if m.status != awaitingStart {
-		s += fmt.Sprintf("\n\nChecked: %d/%d\n"+
-			"Errored: %d\n",
-			len(m.orgs.checked), len(m.orgs.master), len(m.orgs.erroredOrgs))
+		s += fmt.Sprintf("\n\nChecked: %d/%d\n", m.checkedTotal, len(m.data.orgs))
 	}
 
 	return s
 }
 
-func (m *orgCheckerModel) getTagDetails() tea.Cmd {
+func (m *orgMigrationModel) getTagDetails() tea.Cmd {
 	return func() tea.Msg {
-		for _, tag := range m.migrationClient.Cfg.Zendesk.TagsToMigrate {
+		for _, tag := range m.client.Cfg.Zendesk.TagsToMigrate {
 			tm := &timeConversionDetails{
 				startString:   tag.StartDate,
 				endString:     tag.EndDate,
-				startFallback: m.migrationClient.Cfg.Zendesk.MasterStartDate,
-				endFallback:   m.migrationClient.Cfg.Zendesk.MasterEndDate,
+				startFallback: m.client.Cfg.Zendesk.MasterStartDate,
+				endFallback:   m.client.Cfg.Zendesk.MasterEndDate,
 			}
 
 			start, end, err := convertDateStringsToTimeTime(tm)
@@ -177,9 +177,9 @@ func (m *orgCheckerModel) getTagDetails() tea.Cmd {
 	}
 }
 
-func (m *orgCheckerModel) getOrgs() tea.Cmd {
+func (m *orgMigrationModel) getOrgs() tea.Cmd {
 	return func() tea.Msg {
-		slog.Info("getting orgs for tags", "tags", m.migrationClient.Cfg.Zendesk.TagsToMigrate)
+		slog.Info("getting orgs for tags", "tags", m.client.Cfg.Zendesk.TagsToMigrate)
 		for _, tag := range m.tags {
 			slog.Debug("getting orgs for tag", "tag", tag.name)
 			q := &zendesk.SearchQuery{}
@@ -187,7 +187,7 @@ func (m *orgCheckerModel) getOrgs() tea.Cmd {
 
 			slog.Info("getting all orgs from zendesk for tag group", "tag", tag.name)
 
-			orgs, err := m.migrationClient.ZendeskClient.GetOrganizationsWithQuery(ctx, *q)
+			orgs, err := m.client.ZendeskClient.GetOrganizationsWithQuery(ctx, *q)
 			if err != nil {
 				return apiErrMsg{err}
 			}
@@ -197,14 +197,14 @@ func (m *orgCheckerModel) getOrgs() tea.Cmd {
 					zendeskOrg: &org,
 					tag:        &tag,
 				}
-				m.orgs.master = append(m.orgs.master, md)
+				m.data.orgs = append(m.data.orgs, md)
 			}
 		}
 		return switchOrgMigStatusMsg(comparingOrgs)
 	}
 }
 
-func (m *orgCheckerModel) checkOrg(org *orgMigrationDetails) tea.Cmd {
+func (m *orgMigrationModel) checkOrg(org *orgMigrationDetails) tea.Cmd {
 	return func() tea.Msg {
 		q := &zendesk.SearchQuery{}
 		if org.tag.startDate != (time.Time{}) {
@@ -217,10 +217,11 @@ func (m *orgCheckerModel) checkOrg(org *orgMigrationDetails) tea.Cmd {
 
 		q.TicketsOrganizationId = org.zendeskOrg.Id
 
-		tickets, err := m.migrationClient.ZendeskClient.GetTicketsWithQuery(ctx, *q, 20, true)
+		tickets, err := m.client.ZendeskClient.GetTicketsWithQuery(ctx, *q, 20, true)
 		if err != nil {
-			slog.Error("error getting tickets for org", "orgName", org.zendeskOrg.Name, "error", err)
-			m.orgs.erroredOrgs = append(m.orgs.erroredOrgs, erroredOrg{org: org, err: err})
+			slog.Error("getting tickets for org", "orgName", org.zendeskOrg.Name, "error", err)
+			org.orgMigErrors = append(org.orgMigErrors, err)
+			m.checkedTotal++
 			return nil
 		}
 
@@ -228,33 +229,35 @@ func (m *orgCheckerModel) checkOrg(org *orgMigrationDetails) tea.Cmd {
 			org.hasTickets = true
 		} else {
 			// We only care about orgs with tickets - no need to check further
+			m.checkedTotal++
 			return nil
 		}
 
-		org.psaOrg, err = m.migrationClient.MatchZdOrgToCwCompany(ctx, org.zendeskOrg)
+		org.psaOrg, err = m.client.MatchZdOrgToCwCompany(ctx, org.zendeskOrg)
 		if err != nil {
 			slog.Warn("org is not in PSA", "orgName", org.zendeskOrg.Name)
+			m.checkedTotal++
 			return nil
 		}
 
 		if err := m.updateCompanyFieldValue(org); err != nil {
 			slog.Error("error updating company field value in zendesk", "error", err)
-			m.orgs.erroredOrgs = append(m.orgs.erroredOrgs, erroredOrg{org: org, err: err})
+			org.orgMigErrors = append(org.orgMigErrors, err)
+			m.checkedTotal++
 			return nil
 		}
 
 		if org.psaOrg != nil && org.zendeskOrg.OrganizationFields.PSACompanyId == int64(org.psaOrg.Id) {
-			org.ready = true
-			m.orgs.toMigrate = append(m.orgs.toMigrate, org)
+			org.readyUsers = true
+			slog.Debug("org is ready for user migration", "orgName", org.zendeskOrg.Name)
 		}
 
-		m.orgs.checked = append(m.orgs.checked, org)
+		m.checkedTotal++
 		return nil
-
 	}
 }
 
-func (m *orgCheckerModel) updateCompanyFieldValue(org *orgMigrationDetails) error {
+func (m *orgMigrationModel) updateCompanyFieldValue(org *orgMigrationDetails) error {
 	if org.zendeskOrg.OrganizationFields.PSACompanyId == int64(org.psaOrg.Id) {
 		slog.Debug("zendesk org already has PSA company id field", "orgName", org.zendeskOrg.Name, "psaCompanyId", org.zendeskOrg.OrganizationFields.PSACompanyId)
 		return nil
@@ -264,7 +267,7 @@ func (m *orgCheckerModel) updateCompanyFieldValue(org *orgMigrationDetails) erro
 		org.zendeskOrg.OrganizationFields.PSACompanyId = int64(org.psaOrg.Id)
 
 		var err error
-		org.zendeskOrg, err = m.migrationClient.ZendeskClient.UpdateOrganization(ctx, org.zendeskOrg)
+		org.zendeskOrg, err = m.client.ZendeskClient.UpdateOrganization(ctx, org.zendeskOrg)
 		if err != nil {
 			return fmt.Errorf("updating organization with PSA company id: %w", err)
 		}
@@ -278,15 +281,15 @@ func (m *orgCheckerModel) updateCompanyFieldValue(org *orgMigrationDetails) erro
 	return nil
 }
 
-func (m *orgCheckerModel) constructOutput() tea.Cmd {
+func (m *orgMigrationModel) constructOutput() tea.Cmd {
 	return func() tea.Msg {
-		var tagNames, withTickets, notInPsa, notReady, ready, errored []string
+		var tagNames, withTickets, notInPsa, notReady, readyUsers, errors []string
 
 		for _, tag := range m.tags {
 			tagNames = append(tagNames, tag.name)
 		}
 
-		for _, org := range m.orgs.checked {
+		for _, org := range m.data.orgs {
 			if org.hasTickets {
 				withTickets = append(withTickets, org.zendeskOrg.Name)
 			}
@@ -295,24 +298,25 @@ func (m *orgCheckerModel) constructOutput() tea.Cmd {
 				notInPsa = append(notInPsa, org.zendeskOrg.Name)
 			}
 
-			if org.ready {
-				ready = append(ready, org.zendeskOrg.Name)
+			if org.readyUsers {
+				readyUsers = append(readyUsers, org.zendeskOrg.Name)
 			} else {
 				notReady = append(notReady, org.zendeskOrg.Name)
 			}
-		}
 
-		for _, org := range m.orgs.erroredOrgs {
-			summary := fmt.Sprintf("%s\n%s", org.org.zendeskOrg.Name, org.err)
-			errored = append(errored, summary)
+			if len(org.orgMigErrors) > 0 {
+				for _, e := range org.orgMigErrors {
+					errors = append(errors, fmt.Sprintf("%s: %s", org.zendeskOrg.Name, e))
+				}
+			}
 		}
 
 		slices.Sort(tagNames)
 		slices.Sort(withTickets)
 		slices.Sort(notInPsa)
 		slices.Sort(notReady)
-		slices.Sort(ready)
-		slices.Sort(errored)
+		slices.Sort(readyUsers)
+		slices.Sort(errors)
 
 		var output string
 
@@ -329,10 +333,10 @@ func (m *orgCheckerModel) constructOutput() tea.Cmd {
 			strings.Join(tagNames, ", "),
 			len(withTickets),
 			len(notInPsa),
-			len(ready), len(withTickets),
-			len(errored))
+			len(readyUsers), len(withTickets),
+			len(errors))
 
-		if len(withTickets) == len(ready) {
+		if len(withTickets) == len(readyUsers) {
 			output += "All Organizations are Ready for User Migrations!\n\n"
 		}
 
@@ -352,20 +356,20 @@ func (m *orgCheckerModel) constructOutput() tea.Cmd {
 			output += fmt.Sprintf("\n%s\n\n", strings.Join(notReady, "\n"))
 		}
 
-		if len(ready) > 0 {
+		if len(readyUsers) > 0 {
 			output += lipgloss.NewStyle().
 				Border(lipgloss.NormalBorder(), false, false, true, false).
 				Bold(true).
 				Render("Organizations Ready for User Migration")
-			output += fmt.Sprintf("\n%s\n\n", strings.Join(ready, "\n"))
+			output += fmt.Sprintf("\n%s\n\n", strings.Join(readyUsers, "\n"))
 		}
 
-		if len(errored) > 0 {
+		if len(errors) > 0 {
 			output += lipgloss.NewStyle().
 				Border(lipgloss.NormalBorder(), false, false, true, false).
 				Bold(true).
 				Render("Errors")
-			output += fmt.Sprintf("\n%s\n", strings.Join(errored, "\n"))
+			output += fmt.Sprintf("\n%s\n", strings.Join(errors, "\n"))
 		}
 
 		return updateResultsMsg{body: output}

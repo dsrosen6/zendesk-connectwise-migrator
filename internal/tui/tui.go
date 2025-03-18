@@ -39,31 +39,39 @@ const (
 	tabUsers    menuTab = "U | Users"
 )
 
-type Model struct {
-	migrationClient *migration.Client
-	currentModel    tea.Model
-	migrationData   *migrationData
-	activeTab       menuTab
-	viewport        viewPort
-	quitting        bool
+type RootModel struct {
+	client       *migration.Client
+	submodels    *submodels
+	currentModel tea.Model
+	data         *migrationData
+	activeTab    menuTab
+	viewport     viewPort
+	quitting     bool
+}
+
+type submodels struct {
+	mainPage      tea.Model
+	orgMigration  tea.Model
+	userMigration tea.Model
 }
 
 type migrationData struct {
-	readyOrgs          []*orgMigrationDetails
-	orgsToMigrateUsers []*orgMigrationDetails
+	orgs []*orgMigrationDetails
 }
 
 type orgMigrationDetails struct {
-	zendeskOrg *zendesk.Organization
-	psaOrg     *psa.Company
-
-	usersToMigrate []*userMigrationDetails
-	// TODO: ticketsToMigrate []*ticketMigrationDetails
+	zendeskOrg   *zendesk.Organization
+	psaOrg       *psa.Company
+	orgMigErrors []error
 
 	tag        *tagDetails
 	hasTickets bool
 
-	ready bool
+	readyUsers      bool
+	userMigSelected bool
+	usersToMigrate  []*userMigrationDetails
+	userMigErrors   []error
+	// TODO: ticketsToMigrate []*ticketMigrationDetails
 }
 
 type userMigrationDetails struct {
@@ -101,7 +109,7 @@ func sendOrgsCmd(orgs []*orgMigrationDetails) tea.Cmd {
 	}
 }
 
-func NewModel(cx context.Context, mc *migration.Client) *Model {
+func NewModel(cx context.Context, client *migration.Client) *RootModel {
 	ctx = cx
 
 	spnr = spinner.New()
@@ -109,25 +117,32 @@ func NewModel(cx context.Context, mc *migration.Client) *Model {
 	spnr.Style = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "236", Dark: "248"})
 
 	data := &migrationData{}
-	mm := newMainMenuModel(mc, data)
+	mm := newMainMenuModel(client, data)
 
-	return &Model{
-		migrationClient: mc,
-		currentModel:    mm,
-		migrationData:   data,
-		activeTab:       tabMainPage,
-		viewport:        viewPort{title: "Results", show: false},
+	sm := &submodels{
+		mainPage:      newMainMenuModel(client, data),
+		orgMigration:  newOrgMigrationModel(client, data),
+		userMigration: newUserMigrationModel(client, data),
+	}
+
+	return &RootModel{
+		client:       client,
+		submodels:    sm,
+		currentModel: mm,
+		data:         data,
+		activeTab:    tabMainPage,
+		viewport:     viewPort{title: "Results", show: false},
 	}
 }
 
-func (m *Model) Init() tea.Cmd {
+func (m *RootModel) Init() tea.Cmd {
 	return tea.Batch(
 		m.currentModel.Init(),
 		spnr.Tick,
 	)
 }
 
-func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var (
 		cmd  tea.Cmd
 		cmds []tea.Cmd
@@ -168,7 +183,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.activeTab != tabMainPage {
 				m.activeTab = tabMainPage
 				cmds = append(cmds,
-					switchModel(newMainMenuModel(m.migrationClient, m.migrationData)),
+					switchModel(m.submodels.mainPage),
 					toggleViewport(false))
 			}
 		case "o":
@@ -176,14 +191,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.activeTab != tabOrgs {
 				m.activeTab = tabOrgs
 				cmds = append(cmds,
-					switchModel(newOrgCheckerModel(m.migrationClient)),
+					switchModel(m.submodels.orgMigration),
 					toggleViewport(true))
 			}
 		case "u":
 			if m.activeTab != tabUsers {
 				m.activeTab = tabUsers
 				cmds = append(cmds,
-					switchModel(newUserMigrationModel(m.migrationClient, m.migrationData)),
+					switchModel(m.submodels.userMigration),
 					toggleViewport(false))
 			}
 		}
@@ -204,13 +219,20 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case sendOrgsMsg:
 		slog.Debug("received orgs via sendOrgsMsg")
-		m.migrationData.readyOrgs = msg
+		m.data.orgs = msg
+		return m, switchUserMigStatus(pickingOrgs)
 	}
 
 	spnr, cmd = spnr.Update(msg)
 	cmds = append(cmds, cmd)
 
-	m.currentModel, cmd = m.currentModel.Update(msg)
+	m.submodels.mainPage, cmd = m.submodels.mainPage.Update(msg)
+	cmds = append(cmds, cmd)
+
+	m.submodels.orgMigration, cmd = m.submodels.orgMigration.Update(msg)
+	cmds = append(cmds, cmd)
+
+	m.submodels.userMigration, cmd = m.submodels.userMigration.Update(msg)
 	cmds = append(cmds, cmd)
 
 	if m.viewport.show {
@@ -222,7 +244,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-func (m *Model) View() string {
+func (m *RootModel) View() string {
 	if m.quitting {
 		return ""
 	}
