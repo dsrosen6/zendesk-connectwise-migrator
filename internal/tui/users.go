@@ -14,16 +14,16 @@ import (
 )
 
 type userMigrationModel struct {
-	client         *migration.Client
-	data           *migrationData
-	form           *huh.Form
-	formHeight     int
-	selectedOrgs   []*orgMigrationDetails
-	allOrgsChecked bool
-	totalToMigrate int
-	checkedTotal   int
-	status         userMigStatus
-	done           bool
+	client                  *migration.Client
+	data                    *MigrationData
+	form                    *huh.Form
+	formHeight              int
+	selectedOrgs            []*orgMigrationDetails
+	allOrgsChecked          bool
+	totalOrgsToMigrateUsers int
+	totalOrgsChecked        int
+	status                  userMigStatus
+	done                    bool
 }
 
 type userMigStatus string
@@ -43,7 +43,7 @@ const (
 	userMigDone    userMigStatus = "userMigDone"
 )
 
-func newUserMigrationModel(mc *migration.Client, data *migrationData) *userMigrationModel {
+func newUserMigrationModel(mc *migration.Client, data *MigrationData) *userMigrationModel {
 	m := &userMigrationModel{
 		client: mc,
 		data:   data,
@@ -70,29 +70,32 @@ func (m *userMigrationModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		slog.Debug("user migration: got switchUserMigStatusMsg", "status", msg)
 		switch msg {
 		case switchUserMigStatusMsg(pickingOrgs):
+			// Step 1
 			slog.Debug("got pickingOrgs status")
 			m.form = m.orgSelectionForm()
 			m.status = pickingOrgs
 			cmds = append(cmds, m.form.Init())
-			return m, tea.Batch(cmds...)
+			return m, tea.Sequence(cmds...) // TODO: Switch to Batch when ready for speed
 
 		case switchUserMigStatusMsg(gettingUsers):
-			m.totalToMigrate = 0
+			m.totalOrgsToMigrateUsers = 0
+			m.totalOrgsChecked = 0
 			m.status = gettingUsers
-			for _, org := range m.data.orgs {
-				if org.readyUsers && org.userMigSelected {
-					m.totalToMigrate++
+			for _, org := range m.data.Orgs {
+				if org.ReadyUsers && org.UserMigSelected {
+					m.totalOrgsToMigrateUsers++
 					cmds = append(cmds, m.getUsersToMigrate(org))
 				}
 			}
 
-			slog.Debug("user migration: orgs picked", "totalOrgs", m.totalToMigrate)
-			return m, tea.Batch(cmds...)
+			slog.Debug("user migration: orgs picked", "totalOrgs", m.totalOrgsToMigrateUsers)
+			return m, tea.Sequence(cmds...) // TODO: Switch to Batch when ready for speed
+
 		case switchUserMigStatusMsg(migratingUsers):
 			m.status = migratingUsers
-			for _, org := range m.data.orgs {
-				if len(org.usersToMigrate) > 0 {
-					for _, user := range org.usersToMigrate {
+			for _, org := range m.data.Orgs {
+				if len(org.UsersToMigrate) > 0 {
+					for _, user := range org.UsersToMigrate {
 						cmds = append(cmds, m.migrateUser(org, user))
 					}
 				}
@@ -101,7 +104,7 @@ func (m *userMigrationModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	if len(m.data.orgs) == 0 {
+	if len(m.data.Orgs) == 0 {
 		m.status = noOrgs
 	}
 
@@ -116,15 +119,15 @@ func (m *userMigrationModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.form.State == huh.StateCompleted {
 
 			if m.allOrgsChecked {
-				for _, org := range m.data.orgs {
-					if !org.readyUsers {
+				for _, org := range m.data.Orgs {
+					if !org.ReadyUsers {
 						continue
 					}
-					org.userMigSelected = true
+					org.UserMigSelected = true
 				}
 			} else {
 				for _, org := range m.selectedOrgs {
-					org.userMigSelected = true
+					org.UserMigSelected = true
 				}
 			}
 
@@ -132,8 +135,9 @@ func (m *userMigrationModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	if m.status == gettingUsers {
-		cmds = append(cmds, switchUserMigStatus(migratingUsers))
+	if m.status == gettingUsers && m.totalOrgsToMigrateUsers == m.totalOrgsChecked {
+		slog.Debug("all orgs have been checked")
+		m.status = userMigDone
 	}
 
 	return m, tea.Batch(cmds...)
@@ -153,10 +157,13 @@ func (m *userMigrationModel) View() string {
 	case migratingUsers:
 		s = runSpinner("Migrating users")
 		showDetails = true
+	case userMigDone:
+		s = "User migration done"
+		showDetails = true
 	}
 
 	if showDetails {
-		s += fmt.Sprintf("\n\nProcessed: %d/%d\n", m.checkedTotal, m.totalToMigrate)
+		s += fmt.Sprintf("\n\nProcessed: %d/%d\n", m.totalOrgsChecked, m.totalOrgsToMigrateUsers)
 	}
 
 	return s
@@ -186,10 +193,10 @@ func (m *userMigrationModel) orgSelectionForm() *huh.Form {
 
 func (m *userMigrationModel) orgOptions() []huh.Option[*orgMigrationDetails] {
 	var orgOptions []huh.Option[*orgMigrationDetails]
-	for _, org := range m.data.orgs {
-		if org.readyUsers {
+	for _, org := range m.data.Orgs {
+		if org.ReadyUsers {
 			opt := huh.Option[*orgMigrationDetails]{
-				Key:   org.zendeskOrg.Name,
+				Key:   org.ZendeskOrg.Name,
 				Value: org,
 			}
 
@@ -206,19 +213,21 @@ func (m *userMigrationModel) orgOptions() []huh.Option[*orgMigrationDetails] {
 
 func (m *userMigrationModel) getUsersToMigrate(org *orgMigrationDetails) tea.Cmd {
 	return func() tea.Msg {
-		users, err := m.client.ZendeskClient.GetOrganizationUsers(ctx, org.zendeskOrg.Id)
+		users, err := m.client.ZendeskClient.GetOrganizationUsers(ctx, org.ZendeskOrg.Id)
 		if err != nil {
-			slog.Error("getting users for org", "orgName", org.zendeskOrg.Name, "error", err)
-			org.userMigErrors = append(org.userMigErrors, fmt.Errorf("getting users: %w", err))
+			m.totalOrgsChecked++
+			slog.Error("getting users for org", "orgName", org.ZendeskOrg.Name, "error", err)
+			org.UserMigErrors = append(org.UserMigErrors, fmt.Errorf("getting users: %w", err))
 			return nil
 		}
 
 		for _, user := range users {
-			slog.Debug("got user", "orgName", org.zendeskOrg.Name, "userName", user.Name)
-			org.usersToMigrate = append(org.usersToMigrate, &userMigrationDetails{zendeskUser: &user, psaCompany: org.psaOrg})
+			slog.Debug("got user", "orgName", org.ZendeskOrg.Name, "userName", user.Name)
+			org.UsersToMigrate = append(org.UsersToMigrate, &userMigrationDetails{ZendeskUser: &user, PsaCompany: org.PsaOrg})
 		}
 
-		slog.Info("got users for org", "orgName", org.zendeskOrg.Name, "totalUsers", len(org.usersToMigrate))
+		m.totalOrgsChecked++
+		slog.Info("got users for org", "orgName", org.ZendeskOrg.Name, "totalUsers", len(org.UsersToMigrate))
 		return nil
 	}
 }
@@ -226,29 +235,29 @@ func (m *userMigrationModel) getUsersToMigrate(org *orgMigrationDetails) tea.Cmd
 func (m *userMigrationModel) migrateUser(org *orgMigrationDetails, user *userMigrationDetails) tea.Cmd {
 	return func() tea.Msg {
 		var err error
-		user.psaContact, err = m.matchZdUserToCwContact(user.zendeskUser)
+		user.PsaContact, err = m.matchZdUserToCwContact(user.ZendeskUser)
 		if err != nil {
-			slog.Debug("user does not exist in psa - attempting to create new user", "userEmail", user.zendeskUser.Email)
-			user.psaContact, err = m.createPsaContact(user)
+			slog.Debug("user does not exist in psa - attempting to create new user", "userEmail", user.ZendeskUser.Email)
+			user.PsaContact, err = m.createPsaContact(user)
 			if err != nil {
-				slog.Error("creating user", "userName", user.zendeskUser.Email, "error", err)
-				org.userMigErrors = append(org.userMigErrors, fmt.Errorf("creating user %s: %w", user.zendeskUser.Email, err))
+				slog.Error("creating user", "userName", user.ZendeskUser.Email, "error", err)
+				org.UserMigErrors = append(org.UserMigErrors, fmt.Errorf("creating user %s: %w", user.ZendeskUser.Email, err))
 				return nil
 			}
 		}
 
 		if err := m.updateContactFieldValue(user); err != nil {
-			slog.Error("updating user contact field value in zendesk", "userEmail", user.zendeskUser.Email, "error", err)
-			org.userMigErrors = append(org.userMigErrors, fmt.Errorf("updating contact field in zendesk for %s: %w", user.zendeskUser.Email, err))
+			slog.Error("updating user contact field value in zendesk", "userEmail", user.ZendeskUser.Email, "error", err)
+			org.UserMigErrors = append(org.UserMigErrors, fmt.Errorf("updating contact field in zendesk for %s: %w", user.ZendeskUser.Email, err))
 			return nil
 		}
 
-		if user.psaContact != nil && user.zendeskUser.UserFields.PSAContactId == user.psaContact.Id {
-			user.migrated = true
-			slog.Debug("user is fully migrated", "userEmail", user.zendeskUser.Email, "psaContactId", user.psaContact.Id)
+		if user.PsaContact != nil && user.ZendeskUser.UserFields.PSAContactId == user.PsaContact.Id {
+			user.Migrated = true
+			slog.Debug("user is fully migrated", "userEmail", user.ZendeskUser.Email, "psaContactId", user.PsaContact.Id)
 		}
 
-		m.checkedTotal++
+		m.totalOrgsChecked++
 		return nil
 	}
 }
@@ -264,17 +273,17 @@ func (m *userMigrationModel) matchZdUserToCwContact(user *zendesk.User) (*psa.Co
 
 func (m *userMigrationModel) createPsaContact(user *userMigrationDetails) (*psa.Contact, error) {
 	c := &psa.Contact{}
-	c.FirstName, c.LastName = separateName(user.zendeskUser.Name)
+	c.FirstName, c.LastName = separateName(user.ZendeskUser.Name)
 
-	if user.psaCompany == nil {
+	if user.PsaCompany == nil {
 		return nil, errors.New("user psa company is nil")
 	}
-	c.Company = *user.psaCompany
+	c.Company = *user.PsaCompany
 
 	c.CommunicationItems = []psa.CommunicationItem{
 		{
 			Type:              psa.CommunicationItemType{Name: "Email"},
-			Value:             user.zendeskUser.Email,
+			Value:             user.ZendeskUser.Email,
 			DefaultFlag:       true,
 			CommunicationType: "Email",
 		},
@@ -284,26 +293,26 @@ func (m *userMigrationModel) createPsaContact(user *userMigrationDetails) (*psa.
 }
 
 func (m *userMigrationModel) updateContactFieldValue(user *userMigrationDetails) error {
-	if user.zendeskUser.UserFields.PSAContactId == user.psaContact.Id {
+	if user.ZendeskUser.UserFields.PSAContactId == user.PsaContact.Id {
 		slog.Debug("zendesk user already has PSA contact id field",
-			"userEmail", user.zendeskUser.Email,
-			"psaContactId", user.psaContact.Id,
+			"userEmail", user.ZendeskUser.Email,
+			"psaContactId", user.PsaContact.Id,
 		)
 	}
 
-	if user.psaContact.Id != 0 {
-		user.zendeskUser.UserFields.PSAContactId = user.psaContact.Id
+	if user.PsaContact.Id != 0 {
+		user.ZendeskUser.UserFields.PSAContactId = user.PsaContact.Id
 
 		var err error
-		user.zendeskUser, err = m.client.ZendeskClient.UpdateUser(ctx, user.zendeskUser)
+		user.ZendeskUser, err = m.client.ZendeskClient.UpdateUser(ctx, user.ZendeskUser)
 		if err != nil {
 			return fmt.Errorf("updating user with PSA contact id: %w", err)
 		}
 
-		slog.Info("updated zendesk user with PSA contact id", "userEmail", user.zendeskUser.Email)
+		slog.Info("updated zendesk user with PSA contact id", "userEmail", user.ZendeskUser.Email)
 		return nil
 	} else {
-		slog.Error("user psa id is 0 - cannot update psa_contact field in zendesk", "userName", user.zendeskUser.Name)
+		slog.Error("user psa id is 0 - cannot update psa_contact field in zendesk", "userName", user.ZendeskUser.Name)
 		return errors.New("user psa id is 0 - cannot update psa_contact field in zendesk")
 	}
 }

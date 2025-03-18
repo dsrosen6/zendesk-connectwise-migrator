@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/spinner"
@@ -12,6 +13,8 @@ import (
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/psa"
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/zendesk"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -40,10 +43,11 @@ const (
 )
 
 type RootModel struct {
+	mainDir      string
 	client       *migration.Client
 	submodels    *submodels
 	currentModel tea.Model
-	data         *migrationData
+	data         *MigrationData
 	activeTab    menuTab
 	viewport     viewPort
 	quitting     bool
@@ -55,30 +59,30 @@ type submodels struct {
 	userMigration tea.Model
 }
 
-type migrationData struct {
-	orgs []*orgMigrationDetails
+type MigrationData struct {
+	Orgs []*orgMigrationDetails `json:"orgs"`
 }
 
 type orgMigrationDetails struct {
-	zendeskOrg   *zendesk.Organization
-	psaOrg       *psa.Company
-	orgMigErrors []error
+	ZendeskOrg   *zendesk.Organization `json:"zendesk_org"`
+	PsaOrg       *psa.Company          `json:"psa_org"`
+	OrgMigErrors []error               `json:"org_migration_errors"`
 
-	tag        *tagDetails
-	hasTickets bool
+	Tag        *tagDetails `json:"zendesk_tag"`
+	HasTickets bool        `json:"has_tickets"`
 
-	readyUsers      bool
-	userMigSelected bool
-	usersToMigrate  []*userMigrationDetails
-	userMigErrors   []error
+	ReadyUsers      bool                    `json:"ready_users"`
+	UserMigSelected bool                    `json:"user_migration_selected"`
+	UsersToMigrate  []*userMigrationDetails `json:"users_to_migrate"`
+	UserMigErrors   []error                 `json:"user_migration_errors"`
 	// TODO: ticketsToMigrate []*ticketMigrationDetails
 }
 
 type userMigrationDetails struct {
-	zendeskUser *zendesk.User
-	psaContact  *psa.Contact
-	psaCompany  *psa.Company
-	migrated    bool
+	ZendeskUser *zendesk.User `json:"zendesk_user"`
+	PsaContact  *psa.Contact  `json:"psa_contact"`
+	PsaCompany  *psa.Company
+	Migrated    bool `json:"migrated"`
 }
 
 type viewPort struct {
@@ -110,14 +114,24 @@ func sendOrgsCmd(orgs []*orgMigrationDetails) tea.Cmd {
 	}
 }
 
-func NewModel(cx context.Context, client *migration.Client) *RootModel {
+func NewModel(cx context.Context, client *migration.Client, mainDir string, importFile bool) (*RootModel, error) {
 	ctx = cx
 
 	spnr = spinner.New()
 	spnr.Spinner = spinner.Ellipsis
 	spnr.Style = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "236", Dark: "248"})
 
-	data := &migrationData{}
+	data := &MigrationData{}
+	if importFile {
+		var err error
+		path := filepath.Join(mainDir, "migration_data.json")
+		data, err = importJsonFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("importing json file: %w", err)
+		}
+		slog.Info("imported file from JSON")
+	}
+
 	mm := newMainMenuModel(client, data)
 
 	sm := &submodels{
@@ -127,13 +141,14 @@ func NewModel(cx context.Context, client *migration.Client) *RootModel {
 	}
 
 	return &RootModel{
+		mainDir:      mainDir,
 		client:       client,
 		submodels:    sm,
 		currentModel: mm,
 		data:         data,
 		activeTab:    tabMainPage,
 		viewport:     viewPort{title: "Results", show: false},
-	}
+	}, nil
 }
 
 func (m *RootModel) Init() tea.Cmd {
@@ -180,6 +195,8 @@ func (m *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, tea.Quit)
 		case "c":
 			cmds = append(cmds, copyToClipboard(m.viewport.body))
+		case "j":
+			cmds = append(cmds, m.writeDataToFile())
 		case "m":
 			if m.activeTab != tabMainPage {
 				m.activeTab = tabMainPage
@@ -201,6 +218,12 @@ func (m *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmds = append(cmds,
 					switchModel(m.submodels.userMigration),
 					toggleViewport(false))
+
+				if m.submodels.userMigration.(*userMigrationModel).status != pickingOrgs {
+					cmds = append(cmds, switchUserMigStatus(pickingOrgs))
+				}
+				
+				return m, tea.Sequence(cmds...)
 			}
 		}
 
@@ -220,8 +243,7 @@ func (m *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case sendOrgsMsg:
 		slog.Debug("received orgs via sendOrgsMsg")
-		m.data.orgs = msg
-		return m, switchUserMigStatus(pickingOrgs)
+		m.data.Orgs = msg
 	}
 
 	spnr, cmd = spnr.Update(msg)
@@ -269,6 +291,36 @@ func (m *RootModel) View() string {
 	}
 
 	return lipgloss.JoinVertical(lipgloss.Top, views...)
+}
+
+func (m *RootModel) writeDataToFile() tea.Cmd {
+	return func() tea.Msg {
+		f := filepath.Join(m.mainDir, "migration_data.json")
+
+		jsonString, err := json.MarshalIndent(m.data, "", "  ")
+		if err != nil {
+			return fmt.Errorf("marshaling data to json: %w", err)
+		}
+
+		if err := os.WriteFile(f, jsonString, os.ModePerm); err != nil {
+			return fmt.Errorf("writing migration data to file: %w", err)
+		}
+		return nil
+	}
+}
+
+func importJsonFile(path string) (*MigrationData, error) {
+	data := &MigrationData{}
+	file, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("reading migration data file: %w", err)
+	}
+
+	if err := json.Unmarshal(file, data); err != nil {
+		return nil, fmt.Errorf("unmarshaling migration data file: %w", err)
+	}
+
+	return data, nil
 }
 
 func switchModel(sm tea.Model) tea.Cmd {

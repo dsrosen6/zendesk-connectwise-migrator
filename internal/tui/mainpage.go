@@ -7,7 +7,7 @@ import (
 
 type mainMenuModel struct {
 	migrationClient *migration.Client
-	migrationData   *migrationData
+	migrationData   *MigrationData
 }
 
 const (
@@ -16,7 +16,7 @@ const (
 	userMigrator   = "userMigrator"
 )
 
-func newMainMenuModel(mc *migration.Client, data *migrationData) *mainMenuModel {
+func newMainMenuModel(mc *migration.Client, data *MigrationData) *mainMenuModel {
 	return &mainMenuModel{
 		migrationClient: mc,
 		migrationData:   data,

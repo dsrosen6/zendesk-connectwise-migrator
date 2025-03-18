@@ -13,21 +13,22 @@ import (
 )
 
 var (
-	ctx   context.Context
-	debug bool
+	ctx        context.Context
+	debug      bool
+	importFile bool
 )
 
 var rootCmd = &cobra.Command{
 	Use:          "zendesk-connectwise-migrator",
 	SilenceUsage: true,
-	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx = context.Background()
-		home, err := os.UserHomeDir()
+		dir, err := makeMigrationDir()
 		if err != nil {
-			return fmt.Errorf("getting home directory: %w", err)
+			return fmt.Errorf("creating migration directory: %w", err)
 		}
 
-		file, err := openLogFile(filepath.Join(home, "migrator.log"))
+		logFile, err := openLogFile(filepath.Join(dir, "migration.log"))
 		if err != nil {
 			return fmt.Errorf("opening log file: %w", err)
 		}
@@ -37,19 +38,27 @@ var rootCmd = &cobra.Command{
 			return fmt.Errorf("getting debug flag: %w", err)
 		}
 
-		if err := setLogger(file); err != nil {
+		if err := setLogger(logFile); err != nil {
 			return fmt.Errorf("setting logger: %w", err)
 		}
-		return nil
-	},
-	RunE: func(cmd *cobra.Command, args []string) error {
-		client, err := migration.RunStartup(ctx)
+
+		client, err := migration.RunStartup(ctx, dir)
 		if err != nil {
 			slog.Error("running startup", "error", err)
 			return err
 		}
 
-		p := tea.NewProgram(tui.NewModel(ctx, client), tea.WithAltScreen(), tea.WithMouseCellMotion())
+		importFile, err = cmd.Flags().GetBool("file")
+		if err != nil {
+			return fmt.Errorf("getting file flag: %w", err)
+		}
+
+		model, err := tui.NewModel(ctx, client, dir, importFile)
+		if err != nil {
+			return fmt.Errorf("initializing terminal interface: %w", err)
+		}
+
+		p := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
 		if _, err := p.Run(); err != nil {
 			slog.Error("running terminal interface", "error", err)
 			return fmt.Errorf("launching terminal interface: %w", err)
@@ -68,4 +77,19 @@ func Execute() {
 
 func init() {
 	rootCmd.PersistentFlags().BoolP("debug", "d", false, "enable debug logging")
+	rootCmd.PersistentFlags().BoolP("file", "f", false, "bring data from ~/ticket-migration/migration_data.json")
+}
+
+func makeMigrationDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("getting user home directory: %w", err)
+	}
+
+	migrationDir := filepath.Join(home, "ticket-migration")
+	if err := os.MkdirAll(migrationDir, os.ModePerm); err != nil {
+		return "", fmt.Errorf("creating migration directory: %w", err)
+	}
+
+	return migrationDir, nil
 }

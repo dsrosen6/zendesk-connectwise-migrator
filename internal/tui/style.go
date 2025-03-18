@@ -74,5 +74,5 @@ func viewportDivider(v viewPort) string {
 }
 
 func appFooter() string {
-	return titleBar("C: Copy Results | ESC: Exit")
+	return titleBar("C: Copy Results | J: Write to File | ESC: Exit")
 }

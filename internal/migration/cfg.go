@@ -11,7 +11,6 @@ import (
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/zendesk"
 	"github.com/spf13/viper"
 	"log/slog"
-	"os"
 	"sort"
 	"time"
 )
@@ -63,19 +62,16 @@ type ConnectwiseFieldIds struct {
 }
 
 // InitConfig reads in config file
-func InitConfig() (*Config, error) {
+func InitConfig(dir string) (*Config, error) {
 	// Find home directory.
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return nil, fmt.Errorf("getting home directory: %w", err)
-	}
+	configDir := dir
 
 	if CfgFile != "" {
 		// Use config file from the flag.
 		viper.SetConfigFile(CfgFile)
 	} else {
 		// Search config in home directory with name "migrator_config" (without extension).
-		viper.AddConfigPath(home)
+		viper.AddConfigPath(configDir)
 		viper.SetConfigType("json")
 		viper.SetConfigName("migrator_config")
 	}
@@ -85,7 +81,7 @@ func InitConfig() (*Config, error) {
 		var configFileNotFoundError viper.ConfigFileNotFoundError
 		if errors.As(err, &configFileNotFoundError) {
 			setCfgDefaults()
-			path := home + configFileSubPath
+			path := configDir + configFileSubPath
 			slog.Info("creating default config file")
 			if err := viper.WriteConfigAs(path); err != nil {
 				return nil, fmt.Errorf("creating default config file: %w", err)

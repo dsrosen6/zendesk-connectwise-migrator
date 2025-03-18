@@ -31,8 +31,8 @@ type Agent struct {
 	CwId      int    `mapstructure:"connectwise_member_id" json:"connectwise_member_id"`
 }
 
-func RunStartup(ctx context.Context) (*Client, error) {
-	cfg, err := InitConfig()
+func RunStartup(ctx context.Context, dir string) (*Client, error) {
+	cfg, err := InitConfig(dir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize config: %w", err)
 	}
