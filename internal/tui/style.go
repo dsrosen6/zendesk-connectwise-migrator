@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"github.com/charmbracelet/lipgloss"
 	"strings"
 )
@@ -19,6 +20,43 @@ var (
 		return lipgloss.NewStyle().Border(activeTabBorder()).Padding(0, 1)
 	}
 )
+
+func textRed(s string) string {
+	return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("1")).Render(s)
+}
+
+func textYellow(s string) string {
+	return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("4")).Render(s)
+}
+
+func textBlue(s string) string {
+	return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("4")).Render(s)
+}
+
+// I am not colorblind. I know it's turquoise.
+func textGreen(s string) string {
+	return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("6")).Render(s)
+}
+
+func badRedOutput(label string, err error) string {
+	e := textRed(fmt.Sprintf("%s:", label))
+	return fmt.Sprintf("%s: %s\n", e, err)
+}
+
+func warnYellowOutput(label, output string) string {
+	e := textYellow(fmt.Sprintf("%s:", label))
+	return fmt.Sprintf("%s: %s\n", e, output)
+}
+
+func goodBlueOutput(label, output string) string {
+	e := textBlue(fmt.Sprintf("%s:", label))
+	return fmt.Sprintf("%s: %s\n", e, output)
+}
+
+func goodGreenOutput(label, output string) string {
+	e := textGreen(fmt.Sprintf("%s:", label))
+	return fmt.Sprintf("%s: %s\n", e, output)
+}
 
 func activeTabBorder() lipgloss.Border {
 	b := lipgloss.NormalBorder()
@@ -69,8 +107,8 @@ func menuBar(tabs []menuTab, activeTab menuTab) string {
 	return lipgloss.JoinHorizontal(lipgloss.Bottom, renderedTabs, line(dividerLength))
 }
 
-func viewportDivider(v viewPort) string {
-	return titleBar(v.title)
+func viewportDivider() string {
+	return titleBar("Results")
 }
 
 func appFooter() string {

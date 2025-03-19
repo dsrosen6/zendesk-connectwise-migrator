@@ -67,11 +67,6 @@ func (m *userMigrationModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
-	case calculateDimensionsMsg:
-		slog.Debug("user migration received calculate dimensions msg", "formHeight", verticalLeftForMainView)
-		if m.form != nil {
-			m.form.WithHeight(verticalLeftForMainView)
-		}
 
 	case switchUserMigStatusMsg:
 		slog.Debug("user migration: got switchUserMigStatusMsg", "status", msg)

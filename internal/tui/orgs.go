@@ -4,13 +4,11 @@ import (
 	"errors"
 	"fmt"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/migration"
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/psa"
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/zendesk"
 	"log/slog"
 	"slices"
-	"strings"
 	"time"
 )
 
@@ -19,27 +17,15 @@ type orgMigrationModel struct {
 	data         *MigrationData
 	tags         []tagDetails
 	checkedTotal int
-	//orgs   *allOrgs
-	status orgMigStatus
-	done   bool
+	status       orgMigStatus
+	done         bool
+	outputString *string
 }
 
 type tagDetails struct {
 	name      string
 	startDate time.Time
 	endDate   time.Time
-}
-
-//type allOrgs struct {
-//	master      []*orgMigrationDetails
-//	checked     []*orgMigrationDetails
-//	toMigrate   []*orgMigrationDetails
-//	erroredOrgs []erroredOrg
-//}
-
-type erroredOrg struct {
-	org *orgMigrationDetails
-	err error
 }
 
 type orgMigStatus string
@@ -90,7 +76,7 @@ func (m *orgMigrationModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case switchOrgMigStatusMsg(gettingZendeskOrgs):
 			slog.Debug("org checker: got tags", "tags", m.tags)
 			m.status = gettingZendeskOrgs
-			m.data = &MigrationData{}
+			m.data.Orgs = nil
 			return m, m.getOrgs()
 
 		case switchOrgMigStatusMsg(comparingOrgs):
@@ -103,10 +89,8 @@ func (m *orgMigrationModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Sequence(checkOrgCmds...)
 
 		case switchOrgMigStatusMsg(orgMigDone):
-			slog.Debug("org checker: done checking orgs")
+			slog.Debug("org checker: done checking orgs", "totalOrgs", len(m.data.Orgs))
 			m.status = orgMigDone
-			cmds = append(cmds, m.constructOutput())
-			cmds = append(cmds, sendOrgsCmd(m.data.Orgs))
 		}
 	}
 
@@ -132,12 +116,12 @@ func (m *orgMigrationModel) View() string {
 	case comparingOrgs:
 		st = runSpinner("Checking for PSA orgs")
 	case orgMigDone:
-		st = "Done - press 'm' to return to the main menu"
+		st = fmt.Sprintf("%s - press 'm' to return to the main menu\n\n%s", textBlue("Done"), m.constructSummary())
 	}
 
 	s += st
 
-	if m.status != awaitingStart {
+	if m.status != awaitingStart && m.status != orgMigDone {
 		s += fmt.Sprintf("\n\nChecked: %d/%d\n", m.checkedTotal, len(m.data.Orgs))
 	}
 
@@ -216,6 +200,7 @@ func (m *orgMigrationModel) checkOrg(org *orgMigrationDetails) tea.Cmd {
 			slog.Error("getting tickets for org", "orgName", org.ZendeskOrg.Name, "error", err)
 			org.OrgMigErrors = append(org.OrgMigErrors, err)
 			m.checkedTotal++
+			m.data.writeToOutput(badRedOutput("ERROR", fmt.Errorf("couldn't get tickets for org %s: %w", org.ZendeskOrg.Name, err)))
 			return nil
 		}
 
@@ -231,6 +216,7 @@ func (m *orgMigrationModel) checkOrg(org *orgMigrationDetails) tea.Cmd {
 		if err != nil {
 			slog.Warn("org is not in PSA", "orgName", org.ZendeskOrg.Name)
 			m.checkedTotal++
+			m.data.writeToOutput(warnYellowOutput("WARNING", fmt.Sprintf("Error: org not in PSA: %s", org.ZendeskOrg.Name)))
 			return nil
 		}
 
@@ -238,6 +224,7 @@ func (m *orgMigrationModel) checkOrg(org *orgMigrationDetails) tea.Cmd {
 			slog.Error("updating company field value in zendesk", "error", err)
 			org.OrgMigErrors = append(org.OrgMigErrors, err)
 			m.checkedTotal++
+			m.data.writeToOutput(badRedOutput("ERROR", fmt.Errorf("couldn't zendesk company field value for org %s: %w", org.ZendeskOrg.Name, err)))
 			return nil
 		}
 
@@ -247,6 +234,7 @@ func (m *orgMigrationModel) checkOrg(org *orgMigrationDetails) tea.Cmd {
 		}
 
 		m.checkedTotal++
+		m.data.writeToOutput(goodBlueOutput("NO ACTION", fmt.Sprintf("Org is ready for migration: %s", org.ZendeskOrg.Name)))
 		return nil
 	}
 }
@@ -283,97 +271,53 @@ func (m *orgMigrationModel) matchZdOrgToCwCompany(org *zendesk.Organization) (*p
 	return comp, nil
 }
 
-func (m *orgMigrationModel) constructOutput() tea.Cmd {
-	return func() tea.Msg {
-		var tagNames, withTickets, notInPsa, notReady, readyUsers, orgErrors []string
+func (m *orgMigrationModel) constructSummary() string {
+	var tagNames, withTickets, notInPsa, notReady, readyUsers, orgErrors []string
 
-		for _, tag := range m.tags {
-			tagNames = append(tagNames, tag.name)
+	for _, tag := range m.tags {
+		tagNames = append(tagNames, tag.name)
+	}
+
+	for _, org := range m.data.Orgs {
+		if org.HasTickets {
+			withTickets = append(withTickets, org.ZendeskOrg.Name)
 		}
 
-		for _, org := range m.data.Orgs {
-			if org.HasTickets {
-				withTickets = append(withTickets, org.ZendeskOrg.Name)
-			}
-
-			if org.PsaOrg == nil {
-				notInPsa = append(notInPsa, org.ZendeskOrg.Name)
-			}
-
-			if org.ReadyUsers {
-				readyUsers = append(readyUsers, org.ZendeskOrg.Name)
-			} else {
-				notReady = append(notReady, org.ZendeskOrg.Name)
-			}
-
-			if len(org.OrgMigErrors) > 0 {
-				for _, e := range org.OrgMigErrors {
-					orgErrors = append(orgErrors, fmt.Sprintf("%s: %s", org.ZendeskOrg.Name, e))
-				}
-			}
+		if org.PsaOrg == nil {
+			notInPsa = append(notInPsa, org.ZendeskOrg.Name)
 		}
 
-		slices.Sort(tagNames)
-		slices.Sort(withTickets)
-		slices.Sort(notInPsa)
-		slices.Sort(notReady)
-		slices.Sort(readyUsers)
-		slices.Sort(orgErrors)
+		if org.ReadyUsers {
+			readyUsers = append(readyUsers, org.ZendeskOrg.Name)
+		} else {
+			notReady = append(notReady, org.ZendeskOrg.Name)
+		}
 
-		var output string
+		if len(org.OrgMigErrors) > 0 {
+			for _, e := range org.OrgMigErrors {
+				orgErrors = append(orgErrors, fmt.Sprintf("%s: %s", org.ZendeskOrg.Name, e))
+			}
+		}
+	}
 
-		output += lipgloss.NewStyle().
-			Border(lipgloss.NormalBorder(), false, false, true, false).
-			Bold(true).
-			Render("Statistics")
+	slices.Sort(tagNames)
+	slices.Sort(withTickets)
+	slices.Sort(notInPsa)
+	slices.Sort(notReady)
+	slices.Sort(readyUsers)
+	slices.Sort(orgErrors)
 
-		output += fmt.Sprintf("\nTags Checked: %s\n"+
-			"With Tickets: %d\n"+
+	var summary string
+
+	summary += fmt.Sprintf(
+		"With Tickets: %d\n"+
 			"Not in PSA: %d\n"+
 			"Ready for User Migration: %d/%d\n"+
 			"Errored: %d\n\n",
-			strings.Join(tagNames, ", "),
-			len(withTickets),
-			len(notInPsa),
-			len(readyUsers), len(withTickets),
-			len(orgErrors))
+		len(withTickets),
+		len(notInPsa),
+		len(readyUsers), len(withTickets),
+		len(orgErrors))
 
-		if len(withTickets) == len(readyUsers) {
-			output += "All Organizations are Ready for User Migrations!\n\n"
-		}
-
-		if len(notInPsa) > 0 {
-			output += lipgloss.NewStyle().
-				Border(lipgloss.NormalBorder(), false, false, true, false).
-				Bold(true).
-				Render("Organizations Not in PSA")
-			output += fmt.Sprintf("\n%s\n\n", strings.Join(notInPsa, "\n"))
-		}
-
-		if len(notReady) > 0 {
-			output += lipgloss.NewStyle().
-				Border(lipgloss.NormalBorder(), false, false, true, false).
-				Bold(true).
-				Render("Organizations Not Ready for User Migration")
-			output += fmt.Sprintf("\n%s\n\n", strings.Join(notReady, "\n"))
-		}
-
-		if len(readyUsers) > 0 {
-			output += lipgloss.NewStyle().
-				Border(lipgloss.NormalBorder(), false, false, true, false).
-				Bold(true).
-				Render("Organizations Ready for User Migration")
-			output += fmt.Sprintf("\n%s\n\n", strings.Join(readyUsers, "\n"))
-		}
-
-		if len(orgErrors) > 0 {
-			output += lipgloss.NewStyle().
-				Border(lipgloss.NormalBorder(), false, false, true, false).
-				Bold(true).
-				Render("Errors")
-			output += fmt.Sprintf("\n%s\n", strings.Join(orgErrors, "\n"))
-		}
-
-		return updateResultsMsg{body: output}
-	}
+	return summary
 }

@@ -15,6 +15,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -49,7 +50,8 @@ type RootModel struct {
 	currentModel tea.Model
 	data         *MigrationData
 	activeTab    menuTab
-	viewport     viewPort
+	viewport     viewport.Model
+	ready        bool
 	quitting     bool
 }
 
@@ -60,7 +62,8 @@ type submodels struct {
 }
 
 type MigrationData struct {
-	Orgs []*orgMigrationDetails `json:"orgs"`
+	Output strings.Builder        `json:"output"`
+	Orgs   []*orgMigrationDetails `json:"orgs"`
 }
 
 type orgMigrationDetails struct {
@@ -86,14 +89,6 @@ type userMigrationDetails struct {
 	Migrated    bool `json:"migrated"`
 }
 
-type viewPort struct {
-	model viewport.Model
-	title string
-	body  string
-	show  bool
-	ready bool
-}
-
 type timeConversionDetails struct {
 	startString string
 	endString   string
@@ -104,16 +99,6 @@ type timeConversionDetails struct {
 }
 
 type switchModelMsg tea.Model
-
-type sendOrgsMsg []*orgMigrationDetails
-
-type calculateDimensionsMsg struct{}
-
-func sendOrgsCmd(orgs []*orgMigrationDetails) tea.Cmd {
-	return func() tea.Msg {
-		return sendOrgsMsg(orgs)
-	}
-}
 
 func NewModel(cx context.Context, client *migration.Client, mainDir string, importFile bool) (*RootModel, error) {
 	ctx = cx
@@ -148,13 +133,11 @@ func NewModel(cx context.Context, client *migration.Client, mainDir string, impo
 		currentModel: mm,
 		data:         data,
 		activeTab:    tabMainPage,
-		viewport:     viewPort{title: "Results", show: false},
 	}, nil
 }
 
 func (m *RootModel) Init() tea.Cmd {
 	return tea.Batch(
-		m.currentModel.Init(),
 		spnr.Tick,
 	)
 }
@@ -167,26 +150,8 @@ func (m *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		return m, calculateDimensions(msg.Width, msg.Height, m.viewport)
-
-	case calculateDimensionsMsg:
-		if !m.viewport.ready {
-			m.viewport.model = viewport.New(windowWidth, (windowHeight-verticalMarginHeight)*2/3)
-			m.viewport.model.SetContent(m.viewport.body)
-			m.viewport.ready = true
-		} else {
-			m.viewport.model.Width = windowWidth
-			m.viewport.model.Height = (windowHeight - verticalMarginHeight) * 2 / 3
-			m.viewport.model.SetContent(m.viewport.body)
-		}
-
-		if m.viewport.show {
-			verticalMarginHeight = mainHeaderHeight + mainFooterHeight + viewportDvdrHeight
-			verticalLeftForMainView = windowHeight - verticalMarginHeight - m.viewport.model.Height
-		} else {
-			verticalMarginHeight = mainHeaderHeight + mainFooterHeight
-			verticalLeftForMainView = windowHeight - verticalMarginHeight
-		}
+		slog.Debug("got WindowSizeMsg")
+		return m, m.calculateDimensions(msg.Width, msg.Height)
 
 	case tea.KeyMsg:
 
@@ -195,23 +160,22 @@ func (m *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.quitting = true
 			cmds = append(cmds, tea.Quit)
 		case "c":
-			cmds = append(cmds, copyToClipboard(m.viewport.body))
+			cmds = append(cmds, m.copyToClipboard(m.data.Output.String()))
 		case "j":
 			cmds = append(cmds, m.writeDataToFile())
 		case "m":
 			if m.activeTab != tabMainPage {
 				m.activeTab = tabMainPage
 				cmds = append(cmds,
-					switchModel(m.submodels.mainPage),
-					toggleViewport(false))
+					switchModel(m.submodels.mainPage))
 			}
 		case "o":
+			slog.Debug("chose org migration model", "totalOrgs", len(m.data.Orgs))
 			// TODO: figure out why resize happens twice on double o press
 			if m.activeTab != tabOrgs {
 				m.activeTab = tabOrgs
 				cmds = append(cmds,
-					switchModel(m.submodels.orgMigration),
-					toggleViewport(true))
+					switchModel(m.submodels.orgMigration))
 			}
 		case " ":
 			if m.currentModel == m.submodels.orgMigration && m.submodels.orgMigration.(*orgMigrationModel).status == awaitingStart {
@@ -220,12 +184,10 @@ func (m *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "u":
+			slog.Debug("chose user migration model", "totalOrgs", len(m.data.Orgs))
 			if m.activeTab != tabUsers {
 				m.activeTab = tabUsers
-				cmds = append(cmds,
-					toggleViewport(false),
-					switchModel(m.submodels.userMigration),
-				)
+				cmds = append(cmds, switchModel(m.submodels.userMigration))
 
 				if m.submodels.userMigration.(*userMigrationModel).status != pickingOrgs {
 					cmds = append(cmds, switchUserMigStatus(pickingOrgs))
@@ -238,20 +200,11 @@ func (m *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case switchModelMsg:
 		slog.Debug("received new model via switchModelMsg", "model", msg)
 		m.currentModel = msg
-		cmds = append(cmds, m.currentModel.Init())
+		//cmds = append(cmds, m.currentModel.Init())
 
-	case updateResultsMsg:
-		slog.Debug("received updated viewport content via updateResultsMsg")
-		m.viewport.body = msg.body
-
-	case toggleViewportMsg:
-		slog.Debug("received toggle viewport msg", "on", msg.on)
-		m.viewport.show = msg.on
-		return m, calculateDimensions(windowWidth, windowHeight, m.viewport)
-
-	case sendOrgsMsg:
-		slog.Debug("received orgs via sendOrgsMsg")
-		m.data.Orgs = msg
+		//case sendOrgsMsg:
+		//	slog.Debug("received orgs via sendOrgsMsg")
+		//	m.data.Orgs = msg
 	}
 
 	spnr, cmd = spnr.Update(msg)
@@ -266,9 +219,9 @@ func (m *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m.submodels.userMigration, cmd = m.submodels.userMigration.Update(msg)
 	cmds = append(cmds, cmd)
 
-	if m.viewport.show {
-		m.viewport.model.SetContent(m.viewport.body)
-		m.viewport.model, cmd = m.viewport.model.Update(msg)
+	if m.ready {
+		m.viewport.SetContent(m.data.Output.String())
+		m.viewport, cmd = m.viewport.Update(msg)
 		cmds = append(cmds, cmd)
 	}
 
@@ -280,8 +233,8 @@ func (m *RootModel) View() string {
 		return ""
 	}
 
-	if !m.viewport.ready {
-		return runSpinner("Initializing...")
+	if !m.ready {
+		return runSpinner("Initializing")
 	}
 
 	mainView := lipgloss.NewStyle().
@@ -290,13 +243,7 @@ func (m *RootModel) View() string {
 		PaddingLeft(1).
 		Render(m.currentModel.View())
 
-	views := []string{menuBar(menuTabs, m.activeTab), mainView}
-
-	if m.viewport.show {
-		views = append(views, viewportDivider(m.viewport), m.viewport.model.View(), appFooter())
-	} else {
-		views = append(views, appFooter())
-	}
+	views := []string{menuBar(menuTabs, m.activeTab), mainView, viewportDivider(), m.viewport.View(), appFooter()}
 
 	return lipgloss.JoinVertical(lipgloss.Top, views...)
 }
@@ -307,12 +254,17 @@ func (m *RootModel) writeDataToFile() tea.Cmd {
 
 		jsonString, err := json.MarshalIndent(m.data, "", "  ")
 		if err != nil {
-			return fmt.Errorf("marshaling data to json: %w", err)
+			slog.Error("marshaling migration data to file", "error", err)
+			m.data.writeToOutput(badRedOutput("ERROR", fmt.Errorf("couldn't write data to file due to json marshal error: %w", err)))
+			return nil
 		}
 
 		if err := os.WriteFile(f, jsonString, os.ModePerm); err != nil {
-			return fmt.Errorf("writing migration data to file: %w", err)
+			slog.Error("writing migration data to file", "error", err)
+			m.data.writeToOutput(badRedOutput("ERROR", fmt.Errorf("couldn't write data to file: %w", err)))
+			return nil
 		}
+		m.data.writeToOutput(goodGreenOutput("SUCCESS", "Saved data to file - run with -f flag to import next time"))
 		return nil
 	}
 }
@@ -372,25 +324,49 @@ func convertDateStringsToTimeTime(details *timeConversionDetails) (time.Time, ti
 	return startDate, endDate, nil
 }
 
-func copyToClipboard(s string) tea.Cmd {
+func (m *RootModel) copyToClipboard(s string) tea.Cmd {
 	return func() tea.Msg {
 		if err := clipboard.WriteAll(s); err != nil {
-			slog.Error("copying result to clipboard", "error", err)
+			slog.Error("copying results to clipboard", "error", err)
+			m.data.writeToOutput(badRedOutput("ERROR", fmt.Errorf("couldn't copy results to clipboard: %w", err)))
 			return nil
 		}
 		slog.Debug("copied result to clipboard")
+		m.data.writeToOutput(goodGreenOutput("SUCCESS", "copied results to clipboard"))
 		return nil
 	}
 }
 
-func calculateDimensions(w, h int, v viewPort) tea.Cmd {
+func (m *RootModel) calculateDimensions(w, h int) tea.Cmd {
 	dummyMenuTabs := []menuTab{tabMainPage}
 	return func() tea.Msg {
 		windowWidth = w
 		windowHeight = h
 		mainHeaderHeight = lipgloss.Height(menuBar(dummyMenuTabs, dummyMenuTabs[0]))
 		mainFooterHeight = lipgloss.Height(appFooter())
-		viewportDvdrHeight = lipgloss.Height(viewportDivider(v))
-		return calculateDimensionsMsg{}
+		viewportDvdrHeight = lipgloss.Height(viewportDivider())
+		verticalMarginHeight = mainHeaderHeight + mainFooterHeight + viewportDvdrHeight
+		viewportHeight := (windowHeight - verticalMarginHeight) * 1 / 2
+		verticalLeftForMainView = windowHeight - verticalMarginHeight - viewportHeight
+		slog.Debug("got calculateDimensionsMsg")
+
+		if !m.ready {
+			m.viewport = viewport.New(windowWidth, viewportHeight)
+			m.viewport.SetContent(m.data.Output.String())
+
+		} else {
+			m.viewport.Width = windowWidth
+			m.viewport.Height = viewportHeight
+			m.viewport.SetContent(m.data.Output.String())
+		}
+
+		slog.Debug("setting ready to true")
+		m.ready = true
+
+		return nil
 	}
+}
+
+func (d *MigrationData) writeToOutput(s string) {
+	d.Output.WriteString(s)
 }
