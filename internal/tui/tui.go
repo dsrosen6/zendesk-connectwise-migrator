@@ -44,15 +44,17 @@ const (
 )
 
 type RootModel struct {
-	mainDir      string
-	client       *migration.Client
-	submodels    *submodels
-	currentModel tea.Model
-	data         *MigrationData
-	activeTab    menuTab
-	viewport     viewport.Model
-	ready        bool
-	quitting     bool
+	mainDir         string
+	client          *migration.Client
+	submodels       *submodels
+	currentModel    tea.Model
+	data            *MigrationData
+	activeTab       menuTab
+	viewport        viewport.Model
+	ready           bool
+	quitting        bool
+	scrollOverride  bool
+	scrollCountDown bool
 }
 
 type submodels struct {
@@ -147,8 +149,8 @@ func (m *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd  tea.Cmd
 		cmds []tea.Cmd
 	)
-
 	switch msg := msg.(type) {
+
 	case tea.WindowSizeMsg:
 		slog.Debug("got WindowSizeMsg")
 		return m, m.calculateDimensions(msg.Width, msg.Height)
@@ -197,14 +199,16 @@ func (m *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+	case tea.MouseMsg:
+		// override automatic scrolling if user scrolls up or down so they can read output
+		// if they scroll back to the bottom, resume automatic scrolling to the bottom (see
+		if msg.Button == tea.MouseButtonWheelUp || msg.Button == tea.MouseButtonWheelDown {
+			m.scrollOverride = true
+		}
+
 	case switchModelMsg:
 		slog.Debug("received new model via switchModelMsg", "model", msg)
 		m.currentModel = msg
-		//cmds = append(cmds, m.currentModel.Init())
-
-		//case sendOrgsMsg:
-		//	slog.Debug("received orgs via sendOrgsMsg")
-		//	m.data.Orgs = msg
 	}
 
 	spnr, cmd = spnr.Update(msg)
@@ -221,6 +225,7 @@ func (m *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	if m.ready {
 		m.viewport.SetContent(m.data.Output.String())
+		m.setAutoScrollBehavior()
 		m.viewport, cmd = m.viewport.Update(msg)
 		cmds = append(cmds, cmd)
 	}
@@ -352,14 +357,13 @@ func (m *RootModel) calculateDimensions(w, h int) tea.Cmd {
 
 		if !m.ready {
 			m.viewport = viewport.New(windowWidth, viewportHeight)
-			m.viewport.SetContent(m.data.Output.String())
-
 		} else {
 			m.viewport.Width = windowWidth
 			m.viewport.Height = viewportHeight
-			m.viewport.SetContent(m.data.Output.String())
 		}
 
+		m.viewport.SetContent(m.data.Output.String())
+		m.setAutoScrollBehavior()
 		slog.Debug("setting ready to true")
 		m.ready = true
 
@@ -369,4 +373,14 @@ func (m *RootModel) calculateDimensions(w, h int) tea.Cmd {
 
 func (d *MigrationData) writeToOutput(s string) {
 	d.Output.WriteString(s)
+}
+
+func (m *RootModel) setAutoScrollBehavior() {
+	if m.viewport.AtBottom() {
+		m.scrollOverride = false
+	}
+
+	if !m.scrollOverride {
+		m.viewport.GotoBottom()
+	}
 }

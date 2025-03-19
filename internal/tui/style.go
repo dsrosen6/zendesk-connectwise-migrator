@@ -39,23 +39,23 @@ func textGreen(s string) string {
 }
 
 func badRedOutput(label string, err error) string {
-	e := textRed(fmt.Sprintf("%s:", label))
-	return fmt.Sprintf("%s: %s\n", e, err)
+	e := textRed(label)
+	return fmt.Sprintf("%s %s\n", e, err)
 }
 
 func warnYellowOutput(label, output string) string {
-	e := textYellow(fmt.Sprintf("%s:", label))
-	return fmt.Sprintf("%s: %s\n", e, output)
+	e := textYellow(label)
+	return fmt.Sprintf("%s %s\n", e, output)
 }
 
 func goodBlueOutput(label, output string) string {
-	e := textBlue(fmt.Sprintf("%s:", label))
-	return fmt.Sprintf("%s: %s\n", e, output)
+	e := textBlue(label)
+	return fmt.Sprintf("%s %s\n", e, output)
 }
 
 func goodGreenOutput(label, output string) string {
-	e := textGreen(fmt.Sprintf("%s:", label))
-	return fmt.Sprintf("%s: %s\n", e, output)
+	e := textGreen(label)
+	return fmt.Sprintf("%s %s\n", e, output)
 }
 
 func activeTabBorder() lipgloss.Border {
