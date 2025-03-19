@@ -90,6 +90,7 @@ func (m *orgMigrationModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case switchOrgMigStatusMsg(gettingZendeskOrgs):
 			slog.Debug("org checker: got tags", "tags", m.tags)
 			m.status = gettingZendeskOrgs
+			m.data = &MigrationData{}
 			return m, m.getOrgs()
 
 		case switchOrgMigStatusMsg(comparingOrgs):

@@ -218,13 +218,14 @@ func (m *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				slog.Debug("org checker: user pressed space to start")
 				return m, switchOrgMigStatus(gettingTags)
 			}
-			
+
 		case "u":
 			if m.activeTab != tabUsers {
 				m.activeTab = tabUsers
 				cmds = append(cmds,
+					toggleViewport(false),
 					switchModel(m.submodels.userMigration),
-					toggleViewport(false))
+				)
 
 				if m.submodels.userMigration.(*userMigrationModel).status != pickingOrgs {
 					cmds = append(cmds, switchUserMigStatus(pickingOrgs))
