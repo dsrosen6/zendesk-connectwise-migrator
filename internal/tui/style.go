@@ -26,7 +26,7 @@ func textRed(s string) string {
 }
 
 func textYellow(s string) string {
-	return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("4")).Render(s)
+	return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("3")).Render(s)
 }
 
 func textBlue(s string) string {
@@ -112,5 +112,5 @@ func viewportDivider() string {
 }
 
 func appFooter() string {
-	return titleBar("C: Copy Results | J: Write to File | ESC: Exit")
+	return titleBar("C: Copy Results | ESC: Exit")
 }

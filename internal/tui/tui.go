@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/spinner"
@@ -44,17 +45,14 @@ const (
 )
 
 type RootModel struct {
-	mainDir         string
-	client          *migration.Client
-	submodels       *submodels
-	currentModel    tea.Model
-	data            *MigrationData
-	activeTab       menuTab
-	viewport        viewport.Model
-	ready           bool
-	quitting        bool
-	scrollOverride  bool
-	scrollCountDown bool
+	mainDir      string
+	client       *migration.Client
+	data         *MigrationData
+	submodels    *submodels
+	currentModel tea.Model
+	viewport     viewport.Model
+	viewState
+	scrollManagement
 }
 
 type submodels struct {
@@ -76,11 +74,11 @@ type orgMigrationDetails struct {
 	Tag        *tagDetails `json:"zendesk_tag"`
 	HasTickets bool        `json:"has_tickets"`
 
-	ReadyUsers      bool                    `json:"ready_users"`
-	UserMigSelected bool                    `json:"user_migration_selected"`
-	UsersToMigrate  []*userMigrationDetails `json:"users_to_migrate"`
-	UserMigErrors   []error                 `json:"user_migration_errors"`
-	UserMigDone     bool                    `json:"user_migration_done"`
+	ReadyUsers      bool                             `json:"ready_users"`
+	UserMigSelected bool                             `json:"user_migration_selected"`
+	UsersToMigrate  map[string]*userMigrationDetails `json:"users_to_migrate"`
+	UserMigErrors   []error                          `json:"user_migration_errors"`
+	UserMigDone     bool                             `json:"user_migration_done"`
 	// TODO: ticketsToMigrate []*ticketMigrationDetails
 }
 
@@ -100,9 +98,28 @@ type timeConversionDetails struct {
 	endFallback   string
 }
 
+type viewState struct {
+	activeTab menuTab
+	ready     bool
+	quitting  bool
+}
+
+type scrollManagement struct {
+	scrollOverride  bool
+	scrollCountDown bool
+}
+
 type switchModelMsg tea.Model
 
-func NewModel(cx context.Context, client *migration.Client, mainDir string, importFile bool) (*RootModel, error) {
+type saveDataMsg struct{}
+
+func saveDataCmd() tea.Cmd {
+	return func() tea.Msg {
+		return saveDataMsg{}
+	}
+}
+
+func NewModel(cx context.Context, client *migration.Client, mainDir string) (*RootModel, error) {
 	ctx = cx
 
 	spnr = spinner.New()
@@ -110,14 +127,20 @@ func NewModel(cx context.Context, client *migration.Client, mainDir string, impo
 	spnr.Style = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "236", Dark: "248"})
 
 	data := &MigrationData{}
-	if importFile {
-		var err error
-		path := filepath.Join(mainDir, "migration_data.json")
-		data, err = importJsonFile(path)
-		if err != nil {
-			return nil, fmt.Errorf("importing json file: %w", err)
+
+	var err error
+	path := filepath.Join(mainDir, "migration_data.json")
+	data, err = importJsonFile(path)
+	if err != nil {
+		// if the file doesn't exist, we'll just create a new one
+		if errors.Is(err, os.ErrNotExist) {
+			slog.Warn("no migration data file found - will create a new one at first save")
+			data = &MigrationData{}
+		} else {
+			return nil, fmt.Errorf("importing file from JSON: %w", err)
 		}
-		slog.Info("imported file from JSON")
+	} else {
+		slog.Debug("imported migration data from file")
 	}
 
 	mm := newMainMenuModel(client, data)
@@ -134,7 +157,9 @@ func NewModel(cx context.Context, client *migration.Client, mainDir string, impo
 		submodels:    sm,
 		currentModel: mm,
 		data:         data,
-		activeTab:    tabMainPage,
+		viewState: viewState{
+			activeTab: tabMainPage,
+		},
 	}, nil
 }
 
@@ -209,6 +234,9 @@ func (m *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case switchModelMsg:
 		slog.Debug("received new model via switchModelMsg", "model", msg)
 		m.currentModel = msg
+
+	case saveDataMsg:
+		return m, m.writeDataToFile()
 	}
 
 	spnr, cmd = spnr.Update(msg)
@@ -269,7 +297,7 @@ func (m *RootModel) writeDataToFile() tea.Cmd {
 			m.data.writeToOutput(badRedOutput("ERROR", fmt.Errorf("couldn't write data to file: %w", err)))
 			return nil
 		}
-		m.data.writeToOutput(goodGreenOutput("SUCCESS", "Saved data to file - run with -f flag to import next time"))
+		m.data.writeToOutput(goodGreenOutput("SUCCESS", "Saved data to file - ~/ticket-migration/migration_data.json"))
 		return nil
 	}
 }

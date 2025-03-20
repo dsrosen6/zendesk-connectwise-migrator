@@ -91,6 +91,7 @@ func (m *orgMigrationModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case switchOrgMigStatusMsg(orgMigDone):
 			slog.Debug("org checker: done checking orgs", "totalOrgs", len(m.data.Orgs))
 			m.status = orgMigDone
+			cmds = append(cmds, saveDataCmd())
 		}
 	}
 
@@ -172,8 +173,9 @@ func (m *orgMigrationModel) getOrgs() tea.Cmd {
 
 			for _, org := range orgs {
 				md := &orgMigrationDetails{
-					ZendeskOrg: &org,
-					Tag:        &tag,
+					ZendeskOrg:     &org,
+					Tag:            &tag,
+					UsersToMigrate: make(map[string]*userMigrationDetails),
 				}
 				m.data.Orgs = append(m.data.Orgs, md)
 			}

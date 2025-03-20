@@ -13,9 +13,8 @@ import (
 )
 
 var (
-	ctx        context.Context
-	debug      bool
-	importFile bool
+	ctx   context.Context
+	debug bool
 )
 
 var rootCmd = &cobra.Command{
@@ -48,12 +47,7 @@ var rootCmd = &cobra.Command{
 			return err
 		}
 
-		importFile, err = cmd.Flags().GetBool("file")
-		if err != nil {
-			return fmt.Errorf("getting file flag: %w", err)
-		}
-
-		model, err := tui.NewModel(ctx, client, dir, importFile)
+		model, err := tui.NewModel(ctx, client, dir)
 		if err != nil {
 			return fmt.Errorf("initializing terminal interface: %w", err)
 		}
@@ -77,7 +71,6 @@ func Execute() {
 
 func init() {
 	rootCmd.PersistentFlags().BoolP("debug", "d", false, "enable debug logging")
-	rootCmd.PersistentFlags().BoolP("file", "f", false, "bring data from ~/ticket-migration/migration_data.json")
 }
 
 func makeMigrationDir() (string, error) {
