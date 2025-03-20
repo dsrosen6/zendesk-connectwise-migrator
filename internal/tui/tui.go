@@ -62,22 +62,20 @@ type submodels struct {
 }
 
 type MigrationData struct {
-	Output strings.Builder        `json:"output"`
-	Orgs   []*orgMigrationDetails `json:"orgs"`
+	Output strings.Builder                 `json:"output"`
+	Orgs   map[string]*orgMigrationDetails `json:"orgs"`
 }
 
 type orgMigrationDetails struct {
-	ZendeskOrg   *zendesk.Organization `json:"zendesk_org"`
-	PsaOrg       *psa.Company          `json:"psa_org"`
-	OrgMigErrors []error               `json:"org_migration_errors"`
+	ZendeskOrg *zendesk.Organization `json:"zendesk_org"`
+	PsaOrg     *psa.Company          `json:"psa_org"`
 
-	Tag        *tagDetails `json:"zendesk_tag"`
-	HasTickets bool        `json:"has_tickets"`
+	Tag         *tagDetails `json:"zendesk_tag"`
+	HasTickets  bool        `json:"has_tickets"`
+	OrgMigrated bool        `json:"org_migrated"`
 
-	ReadyUsers      bool                             `json:"ready_users"`
 	UserMigSelected bool                             `json:"user_migration_selected"`
 	UsersToMigrate  map[string]*userMigrationDetails `json:"users_to_migrate"`
-	UserMigErrors   []error                          `json:"user_migration_errors"`
 	UserMigDone     bool                             `json:"user_migration_done"`
 	// TODO: ticketsToMigrate []*ticketMigrationDetails
 }
@@ -135,7 +133,7 @@ func NewModel(cx context.Context, client *migration.Client, mainDir string) (*Ro
 		// if the file doesn't exist, we'll just create a new one
 		if errors.Is(err, os.ErrNotExist) {
 			slog.Warn("no migration data file found - will create a new one at first save")
-			data = &MigrationData{}
+			data = &MigrationData{Orgs: make(map[string]*orgMigrationDetails)}
 		} else {
 			return nil, fmt.Errorf("importing file from JSON: %w", err)
 		}
@@ -197,28 +195,37 @@ func (m *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					switchModel(m.submodels.mainPage))
 			}
 		case "o":
-			slog.Debug("chose org migration model", "totalOrgs", len(m.data.Orgs))
-			// TODO: figure out why resize happens twice on double o press
 			if m.activeTab != tabOrgs {
+				slog.Debug("chose org migration model", "totalOrgs", len(m.data.Orgs))
 				m.activeTab = tabOrgs
 				cmds = append(cmds,
 					switchModel(m.submodels.orgMigration))
 			}
 		case " ":
-			if m.currentModel == m.submodels.orgMigration && m.submodels.orgMigration.(*orgMigrationModel).status == awaitingStart {
-				slog.Debug("org checker: user pressed space to start")
-				return m, switchOrgMigStatus(gettingTags)
+			switch m.currentModel {
+			case m.submodels.orgMigration:
+				switch m.submodels.orgMigration.(*orgMigrationModel).status {
+				case awaitingStart, orgMigDone:
+					slog.Debug("org checker: user pressed space to start")
+					return m, switchOrgMigStatus(gettingTags)
+				}
+			case m.submodels.userMigration:
+				switch m.submodels.userMigration.(*userMigrationModel).status {
+				case userMigDone:
+					slog.Debug("user migration: user pressed space to run again")
+					return m, initForm()
+				}
 			}
 
 		case "u":
-			slog.Debug("chose user migration model", "totalOrgs", len(m.data.Orgs))
 			if m.activeTab != tabUsers {
+				slog.Debug("chose user migration model", "totalOrgs", len(m.data.Orgs))
 				m.activeTab = tabUsers
-				cmds = append(cmds, switchModel(m.submodels.userMigration))
-
-				if m.submodels.userMigration.(*userMigrationModel).status != pickingOrgs {
-					cmds = append(cmds, switchUserMigStatus(pickingOrgs))
+				if m.submodels.userMigration.(*userMigrationModel).status == noOrgs {
+					cmds = append(cmds, initForm())
 				}
+
+				cmds = append(cmds, switchModel(m.submodels.userMigration))
 
 				return m, tea.Sequence(cmds...)
 			}

@@ -14,12 +14,19 @@ import (
 )
 
 type userMigrationModel struct {
-	client                  *migration.Client
-	data                    *MigrationData
-	form                    *huh.Form
-	formHeight              int
-	selectedOrgs            []*orgMigrationDetails
-	allOrgsChecked          bool
+	client          *migration.Client
+	data            *MigrationData
+	form            *huh.Form
+	formHeight      int
+	selectedOrgs    []*orgMigrationDetails
+	allOrgsSelected bool
+	userMigTotals
+
+	status userMigStatus
+	done   bool
+}
+
+type userMigTotals struct {
 	totalOrgsToMigrateUsers int
 	totalOrgsChecked        int
 	totalUsersToProcess     int
@@ -27,9 +34,7 @@ type userMigrationModel struct {
 	totalUsersProcessed     int
 	totalUsersSkipped       int
 	totalOrgsDone           int
-
-	status userMigStatus
-	done   bool
+	totalErrors             int
 }
 
 type userMigStatus string
@@ -41,8 +46,17 @@ func switchUserMigStatus(s userMigStatus) tea.Cmd {
 	}
 }
 
+type initFormMsg struct{}
+
+func initForm() tea.Cmd {
+	return func() tea.Msg {
+		return initFormMsg{}
+	}
+}
+
 const (
 	noOrgs         userMigStatus = "noOrgs"
+	waitingForOrgs userMigStatus = "waitingForOrgs"
 	pickingOrgs    userMigStatus = "pickingOrgs"
 	gettingUsers   userMigStatus = "gettingUsers"
 	migratingUsers userMigStatus = "migratingUsers"
@@ -68,24 +82,38 @@ func (m *userMigrationModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 
+	case initFormMsg:
+		if len(m.data.Orgs) == 0 {
+			slog.Warn("got initFormMsg, but no orgs")
+			m.data.writeToOutput(warnYellowOutput("WARNING", "no organizations")) // TODO: something more specific
+			return m, switchUserMigStatus(noOrgs)
+		} else {
+			slog.Debug("got initFormMsg", "totalOrgs", len(m.data.Orgs))
+			m.form = m.orgSelectionForm()
+			cmds = append(cmds, m.form.Init(), switchUserMigStatus(pickingOrgs))
+			return m, tea.Sequence(cmds...)
+		}
+
 	case switchUserMigStatusMsg:
 		slog.Debug("user migration: got switchUserMigStatusMsg", "status", msg)
 		switch msg {
+		case switchUserMigStatusMsg(noOrgs):
+			m.status = noOrgs
+
+		case switchUserMigStatusMsg(waitingForOrgs):
+			m.status = waitingForOrgs
 		case switchUserMigStatusMsg(pickingOrgs):
-			// Step 1
 			slog.Debug("got pickingOrgs status")
 			m.form = m.orgSelectionForm()
 			m.status = pickingOrgs
 			cmds = append(cmds, m.form.Init())
-			return m, tea.Sequence(cmds...) // TODO: Switch to Batch when ready for speed
+			return m, tea.Sequence(cmds...)
 
 		case switchUserMigStatusMsg(gettingUsers):
-			m.totalOrgsToMigrateUsers = 0
-			m.totalOrgsChecked = 0
-			m.totalUsersSkipped = 0
+			m.userMigTotals = userMigTotals{}
 			m.status = gettingUsers
 			for _, org := range m.data.Orgs {
-				if org.ReadyUsers && org.UserMigSelected {
+				if org.OrgMigrated && org.UserMigSelected {
 					m.totalOrgsToMigrateUsers++
 					cmds = append(cmds, m.getUsersToMigrate(org))
 				}
@@ -97,8 +125,10 @@ func (m *userMigrationModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case switchUserMigStatusMsg(migratingUsers):
 			m.status = migratingUsers
 			for _, org := range m.data.Orgs {
-				m.totalUsersToProcess += len(org.UsersToMigrate)
-				cmds = append(cmds, m.migrateOrgUsers(org))
+				if org.UserMigSelected {
+					m.totalUsersToProcess += len(org.UsersToMigrate)
+					cmds = append(cmds, m.migrateOrgUsers(org))
+				}
 			}
 
 			return m, tea.Sequence(cmds...)
@@ -107,10 +137,6 @@ func (m *userMigrationModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = userMigDone
 			cmds = append(cmds, saveDataCmd())
 		}
-	}
-
-	if len(m.data.Orgs) == 0 {
-		m.status = noOrgs
 	}
 
 	if m.status == pickingOrgs {
@@ -123,9 +149,9 @@ func (m *userMigrationModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Once the form is submitted, mark all selected orgs as needing migration
 		if m.form.State == huh.StateCompleted {
 
-			if m.allOrgsChecked {
+			if m.allOrgsSelected {
 				for _, org := range m.data.Orgs {
-					if !org.ReadyUsers {
+					if !org.OrgMigrated {
 						continue
 					}
 					org.UserMigSelected = true
@@ -154,32 +180,20 @@ func (m *userMigrationModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *userMigrationModel) View() string {
 	var s string
-	var showDetails bool
 	switch m.status {
 	case noOrgs:
 		s = "No orgs have been loaded! Please return to the main menu and select Organizations, then return."
+	case waitingForOrgs:
+		s = runSpinner("Org migration is running - please wait")
 	case pickingOrgs:
 		s = m.form.View()
 	case gettingUsers:
 		s = runSpinner("Getting users")
-		showDetails = true
 	case migratingUsers:
-		s = runSpinner("Migrating users")
-		showDetails = true
+		counterStatus := fmt.Sprintf("Processing users: %d/%d", m.totalUsersProcessed, m.totalUsersToProcess)
+		s = runSpinner(counterStatus)
 	case userMigDone:
-		s = "User migration done"
-		showDetails = true
-	}
-
-	if showDetails {
-		s += fmt.Sprintf("\n\nProcessed Orgs: %d/%d\n"+
-			"Users Processed: %d/%d\n"+
-			"New Users Created: %d\n"+
-			"Users Skipped: %d\n",
-			m.totalOrgsChecked, m.totalOrgsToMigrateUsers,
-			m.totalUsersProcessed, m.totalUsersToProcess,
-			m.totalNewUsersCreated,
-			m.totalUsersSkipped)
+		s = fmt.Sprintf("User migration done - press %s to run again\n\n%s", textNormalAdaptive("SPACE"), m.constructSummary())
 	}
 
 	return s
@@ -195,7 +209,7 @@ func (m *userMigrationModel) orgSelectionForm() *huh.Form {
 				Options(
 					huh.NewOption("All Orgs", true),
 					huh.NewOption("Select Orgs", false)).
-				Value(&m.allOrgsChecked),
+				Value(&m.allOrgsSelected),
 		),
 		huh.NewGroup(
 			huh.NewMultiSelect[*orgMigrationDetails]().
@@ -203,14 +217,14 @@ func (m *userMigrationModel) orgSelectionForm() *huh.Form {
 				Description("Use Space to select, and Enter/Return to submit").
 				Options(m.orgOptions()...).
 				Value(&m.selectedOrgs),
-		).WithHideFunc(func() bool { return m.allOrgsChecked == true }),
+		).WithHideFunc(func() bool { return m.allOrgsSelected == true }),
 	).WithHeight(verticalLeftForMainView).WithShowHelp(false).WithTheme(migration.CustomHuhTheme())
 }
 
 func (m *userMigrationModel) orgOptions() []huh.Option[*orgMigrationDetails] {
 	var orgOptions []huh.Option[*orgMigrationDetails]
 	for _, org := range m.data.Orgs {
-		if org.ReadyUsers {
+		if org.OrgMigrated {
 			opt := huh.Option[*orgMigrationDetails]{
 				Key:   org.ZendeskOrg.Name,
 				Value: org,
@@ -231,9 +245,10 @@ func (m *userMigrationModel) getUsersToMigrate(org *orgMigrationDetails) tea.Cmd
 	return func() tea.Msg {
 		users, err := m.client.ZendeskClient.GetOrganizationUsers(ctx, org.ZendeskOrg.Id)
 		if err != nil {
-			m.totalOrgsChecked++
 			slog.Error("getting users for org", "orgName", org.ZendeskOrg.Name, "error", err)
 			m.data.writeToOutput(badRedOutput("ERROR", fmt.Errorf("couldn't get users for org %s: %v", org.ZendeskOrg.Name, err)))
+			m.totalOrgsChecked++
+			m.totalErrors++
 			return nil
 		}
 
@@ -248,14 +263,14 @@ func (m *userMigrationModel) getUsersToMigrate(org *orgMigrationDetails) tea.Cmd
 			}
 		}
 
-		m.totalOrgsChecked++
 		slog.Info("got users for org", "orgName", org.ZendeskOrg.Name, "totalUsers", len(org.UsersToMigrate))
+		m.totalOrgsChecked++
 		return nil
 	}
 }
 
-func (m *orgMigrationDetails) addUserToUsersMap(idString string, user *userMigrationDetails) {
-	m.UsersToMigrate[idString] = user
+func (md *orgMigrationDetails) addUserToUsersMap(idString string, user *userMigrationDetails) {
+	md.UsersToMigrate[idString] = user
 }
 
 func (m *userMigrationModel) migrateOrgUsers(org *orgMigrationDetails) tea.Cmd {
@@ -288,6 +303,7 @@ func (m *userMigrationModel) migrateOrgUsers(org *orgMigrationDetails) tea.Cmd {
 						slog.Error("creating user", "userName", user.ZendeskUser.Email, "error", err)
 						m.data.writeToOutput(badRedOutput("ERROR", fmt.Errorf("creating user %s: %v", user.ZendeskUser.Email, err)))
 						m.totalUsersProcessed++
+						m.totalErrors++
 						continue
 					}
 
@@ -298,6 +314,7 @@ func (m *userMigrationModel) migrateOrgUsers(org *orgMigrationDetails) tea.Cmd {
 					slog.Error("matching zendesk user to psa user", "userEmail", user.ZendeskUser.Email, "error", err)
 					m.data.writeToOutput(badRedOutput("ERROR", fmt.Errorf("matching zendesk user to psa user %s: %v", user.ZendeskUser.Email, err)))
 					m.totalUsersProcessed++
+					m.totalErrors++
 					continue
 				}
 			}
@@ -314,6 +331,7 @@ func (m *userMigrationModel) migrateOrgUsers(org *orgMigrationDetails) tea.Cmd {
 				slog.Error("updating user contact field value in zendesk", "userEmail", user.ZendeskUser.Email, "error", err)
 				m.data.writeToOutput(badRedOutput("ERROR", fmt.Errorf("updating contact field in zendesk for %s: %v", user.ZendeskUser.Email, err)))
 				m.totalUsersProcessed++
+				m.totalErrors++
 				continue
 			}
 
@@ -324,6 +342,7 @@ func (m *userMigrationModel) migrateOrgUsers(org *orgMigrationDetails) tea.Cmd {
 				m.totalUsersProcessed++
 			}
 		}
+		org.UserMigSelected = false
 		m.totalOrgsDone++
 		return nil
 	}
@@ -389,6 +408,19 @@ func (m *userMigrationModel) updateContactFieldValue(user *userMigrationDetails)
 		slog.Error("user psa id is 0 - cannot update psa_contact field in zendesk", "userName", user.ZendeskUser.Name)
 		return errors.New("user psa id is 0 - cannot update psa_contact field in zendesk")
 	}
+}
+
+func (m *userMigrationModel) constructSummary() string {
+	return fmt.Sprintf("%s %d/%d\n"+
+		"%s %d/%d\n"+
+		"%s %d\n"+
+		"%s %d\n"+
+		"%s %d\n",
+		textNormalAdaptive("Orgs Processed:"), m.totalOrgsChecked, m.totalOrgsToMigrateUsers,
+		textNormalAdaptive("Users Processed:"), m.totalUsersProcessed, m.totalUsersToProcess,
+		textNormalAdaptive("New Users Created:"), m.totalNewUsersCreated,
+		textNormalAdaptive("Users Skipped:"), m.totalUsersSkipped,
+		textNormalAdaptive("Errors:"), m.totalErrors)
 }
 
 func separateName(name string) (string, string) {

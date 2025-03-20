@@ -3,12 +3,17 @@ package zendesk
 import (
 	"context"
 	"fmt"
-	"log"
 	"time"
 )
 
 type TicketSearchResp struct {
 	Tickets []Ticket `json:"results"`
+	Meta    Meta     `json:"meta"`
+	Links   Links    `json:"links"`
+}
+
+type TicketsListResp struct {
+	Tickets []Ticket `json:"tickets"`
 	Meta    Meta     `json:"meta"`
 	Links   Links    `json:"links"`
 }
@@ -60,7 +65,7 @@ type TicketCustomField struct {
 	Value *string `json:"value"`
 }
 
-type TicketComments struct {
+type TicketCommentsResp struct {
 	Comments []Comment `json:"comments"`
 	Meta     Meta      `json:"meta"`
 	Links    Links     `json:"links"`
@@ -128,40 +133,63 @@ func (c *Client) GetTicketsWithQuery(ctx context.Context, q SearchQuery, pageSiz
 	return allTickets, nil
 }
 
+func (c *Client) GetUserTickets(ctx context.Context, userId int64) ([]Ticket, error) {
+	initialUrl := fmt.Sprintf("%s/users/%d/requested.json?page[size]=100", c.baseUrl, userId)
+	var allTickets []Ticket
+	currentPage := &TicketsListResp{}
+
+	if err := c.ApiRequest(ctx, "GET", initialUrl, nil, &currentPage); err != nil {
+		return nil, fmt.Errorf("getting users tickets: %w", err)
+	}
+
+	allTickets = append(allTickets, currentPage.Tickets...)
+
+	for currentPage.Meta.HasMore {
+		nextPage := &TicketsListResp{}
+		if err := c.ApiRequest(ctx, "GET", currentPage.Links.Next, nil, &nextPage); err != nil {
+			return nil, fmt.Errorf("getting next page of user tickets: %w", err)
+		}
+
+		allTickets = append(allTickets, nextPage.Tickets...)
+		currentPage = nextPage
+	}
+
+	return allTickets, nil
+}
+
 func (c *Client) GetTicket(ctx context.Context, ticketId int64) (*Ticket, error) {
 	url := fmt.Sprintf("%s/tickets/%d", c.baseUrl, ticketId)
 	t := &TicketResp{}
 
 	if err := c.ApiRequest(ctx, "GET", url, nil, &t); err != nil {
-		return nil, fmt.Errorf("an error occured getting the ticket: %w", err)
+		return nil, fmt.Errorf("getting ticket info: %w", err)
 	}
 
 	return &t.Ticket, nil
 }
 
-func (c *Client) GetAllTicketComments(ctx context.Context, ticketId int64) (TicketComments, error) {
+func (c *Client) GetAllTicketComments(ctx context.Context, ticketId int64) ([]Comment, error) {
 	initialUrl := fmt.Sprintf("%s/tickets/%d/comments.json?page[size]=100", c.baseUrl, ticketId)
-	allComments := &TicketComments{}
-	currentPage := &TicketComments{}
+	var allComments []Comment
+	currentPage := &TicketCommentsResp{}
 
 	if err := c.ApiRequest(ctx, "GET", initialUrl, nil, &currentPage); err != nil {
-		return TicketComments{}, fmt.Errorf("an error occured getting initial ticket comments: %w", err)
+		return nil, fmt.Errorf("an error occured getting initial ticket comments: %w", err)
 	}
 
 	// Append the first page of comments to the allComments slice
-	allComments.Comments = append(allComments.Comments, currentPage.Comments...)
+	allComments = append(allComments, currentPage.Comments...)
 
 	for currentPage.Meta.HasMore {
-		nextPage := &TicketComments{}
-		log.Printf("Next page: %s", currentPage.Links.Next)
+		nextPage := &TicketCommentsResp{}
 		if err := c.ApiRequest(ctx, "GET", currentPage.Links.Next, nil, &nextPage); err != nil {
-			return TicketComments{}, fmt.Errorf("an error occured getting next page of ticket comments: %w", err)
+			return nil, fmt.Errorf("an error occured getting next page of ticket comments: %w", err)
 		}
 
-		allComments.Comments = append(allComments.Comments, nextPage.Comments...)
+		allComments = append(allComments, nextPage.Comments...)
 		currentPage = nextPage
 
 	}
 
-	return *allComments, nil
+	return allComments, nil
 }
