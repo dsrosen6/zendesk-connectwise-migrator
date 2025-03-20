@@ -21,9 +21,9 @@ type orgMigrationModel struct {
 }
 
 type tagDetails struct {
-	name      string
-	startDate time.Time
-	endDate   time.Time
+	Name      string    `json:"name"`
+	StartDate time.Time `json:"start_date"`
+	EndDate   time.Time `json:"end_date"`
 }
 
 type orgMigTotals struct {
@@ -77,7 +77,7 @@ func (m *orgMigrationModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case switchOrgMigStatusMsg(gettingTags):
 
 			m.status = gettingTags
-			return m, tea.Batch(m.getTagDetails(), switchUserMigStatus(waitingForOrgs))
+			return m, tea.Batch(m.getTagDetails(), switchUserMigStatus(userMigWaitingForOrgs), switchTicketMigStatus(ticketMigWaitingForOrgs))
 
 		case switchOrgMigStatusMsg(gettingZendeskOrgs):
 			slog.Debug("org checker: got tags", "tags", m.tags)
@@ -97,7 +97,7 @@ func (m *orgMigrationModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case switchOrgMigStatusMsg(orgMigDone):
 			slog.Debug("org checker: done checking orgs", "totalOrgs", len(m.data.Orgs))
 			m.status = orgMigDone
-			cmds = append(cmds, saveDataCmd(), initForm())
+			cmds = append(cmds, saveDataCmd())
 		}
 	}
 
@@ -146,9 +146,9 @@ func (m *orgMigrationModel) getTagDetails() tea.Cmd {
 			}
 
 			td := tagDetails{
-				name:      tag.Name,
-				startDate: start,
-				endDate:   end,
+				Name:      tag.Name,
+				StartDate: start,
+				EndDate:   end,
 			}
 
 			m.tags = append(m.tags, td)
@@ -161,15 +161,15 @@ func (m *orgMigrationModel) getOrgs() tea.Cmd {
 	return func() tea.Msg {
 		slog.Info("getting orgs for tags", "tags", m.client.Cfg.Zendesk.TagsToMigrate)
 		for _, tag := range m.tags {
-			slog.Debug("getting orgs for tag", "tag", tag.name)
+			slog.Debug("getting orgs for tag", "tag", tag.Name)
 			q := &zendesk.SearchQuery{}
-			q.Tags = []string{tag.name}
+			q.Tags = []string{tag.Name}
 
-			slog.Info("getting all orgs from zendesk for tag group", "tag", tag.name)
+			slog.Info("getting all orgs from zendesk for tag group", "tag", tag.Name)
 
 			orgs, err := m.client.ZendeskClient.GetOrganizationsWithQuery(ctx, *q)
 			if err != nil {
-				return apiErrMsg{err}
+				return apiErrMsg{err} // TODO: actually error handle, don't just leave
 			}
 
 			for _, org := range orgs {
@@ -178,9 +178,10 @@ func (m *orgMigrationModel) getOrgs() tea.Cmd {
 					slog.Debug("adding org to migration data", "zendeskOrgId", idString, "orgName", org.Name)
 
 					md := &orgMigrationDetails{
-						ZendeskOrg:     &org,
-						Tag:            &tag,
-						UsersToMigrate: make(map[string]*userMigrationDetails),
+						ZendeskOrg:       &org,
+						Tag:              &tag,
+						UsersToMigrate:   make(map[string]*userMigrationDetails),
+						TicketsToMigrate: make(map[string]*ticketMigrationDetails),
 					}
 
 					m.data.addOrgToOrgsMap(idString, md)
@@ -213,18 +214,15 @@ func (m *orgMigrationModel) checkOrg(org *orgMigrationDetails) tea.Cmd {
 			return nil
 		}
 
-		q := &zendesk.SearchQuery{}
-		if org.Tag.startDate != (time.Time{}) {
-			q.TicketCreatedAfter = org.Tag.startDate
-		}
-
-		if org.Tag.endDate != (time.Time{}) {
-			q.TicketCreatedBefore = org.Tag.endDate
+		q := zendesk.SearchQuery{
+			TicketsOrganizationId: org.ZendeskOrg.Id,
+			TicketCreatedAfter:    org.Tag.StartDate,
+			TicketCreatedBefore:   org.Tag.EndDate,
 		}
 
 		q.TicketsOrganizationId = org.ZendeskOrg.Id
 
-		tickets, err := m.client.ZendeskClient.GetTicketsWithQuery(ctx, *q, 20, true)
+		tickets, err := m.client.ZendeskClient.GetTicketsWithQuery(ctx, q, 20, true)
 		if err != nil {
 			slog.Error("getting tickets for org", "orgName", org.ZendeskOrg.Name, "error", err)
 			m.data.writeToOutput(badRedOutput("ERROR", fmt.Errorf("couldn't get tickets for org %s: %w", org.ZendeskOrg.Name, err)))

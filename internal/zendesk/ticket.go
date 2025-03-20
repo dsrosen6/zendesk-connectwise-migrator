@@ -3,6 +3,7 @@ package zendesk
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 )
 
@@ -112,6 +113,7 @@ func (c *Client) GetTicketsWithQuery(ctx context.Context, q SearchQuery, pageSiz
 	if err := c.exportSearchRequest(ctx, TicketSearchType, q, pageSize, &currentPage); err != nil {
 		return nil, fmt.Errorf("an error occured getting the tickets: %w", err)
 	}
+	slog.Debug("got initial page of tickets", "totalInitialTickets", len(currentPage.Tickets))
 
 	allTickets = append(allTickets, currentPage.Tickets...)
 
@@ -125,35 +127,39 @@ func (c *Client) GetTicketsWithQuery(ctx context.Context, q SearchQuery, pageSiz
 		if err := c.ApiRequest(ctx, "GET", currentPage.Links.Next, nil, &nextPage); err != nil {
 			return nil, fmt.Errorf("an error occured getting next page of tickets: %w", err)
 		}
-
+		slog.Debug("got next page of tickets", "totalTicketsInPage", len(nextPage.Tickets))
 		allTickets = append(allTickets, nextPage.Tickets...)
 		currentPage = nextPage
 	}
 
+	slog.Debug("finished getting tickets for org", "totalTicketsFound", len(allTickets))
 	return allTickets, nil
 }
 
-func (c *Client) GetUserTickets(ctx context.Context, userId int64) ([]Ticket, error) {
-	initialUrl := fmt.Sprintf("%s/users/%d/requested.json?page[size]=100", c.baseUrl, userId)
+func (c *Client) GetOrgTickets(ctx context.Context, orgId int64) ([]Ticket, error) {
+	initialUrl := fmt.Sprintf("%s/organizations/%d/tickets.json?page[size]=100", c.baseUrl, orgId)
 	var allTickets []Ticket
 	currentPage := &TicketsListResp{}
 
 	if err := c.ApiRequest(ctx, "GET", initialUrl, nil, &currentPage); err != nil {
-		return nil, fmt.Errorf("getting users tickets: %w", err)
+		return nil, fmt.Errorf("getting org tickets: %w", err)
 	}
 
+	slog.Debug("got initial page of tickets", "orgId", orgId, "totalInitialTickets", len(currentPage.Tickets))
 	allTickets = append(allTickets, currentPage.Tickets...)
 
 	for currentPage.Meta.HasMore {
 		nextPage := &TicketsListResp{}
 		if err := c.ApiRequest(ctx, "GET", currentPage.Links.Next, nil, &nextPage); err != nil {
-			return nil, fmt.Errorf("getting next page of user tickets: %w", err)
+			return nil, fmt.Errorf("getting next page of org tickets: %w", err)
 		}
 
+		slog.Debug("got next page of tickets", "orgId", orgId, "totalTicketsInPage", len(nextPage.Tickets))
 		allTickets = append(allTickets, nextPage.Tickets...)
 		currentPage = nextPage
 	}
 
+	slog.Debug("finished getting tickets for org", "orgId", orgId, "totalTicketsInPage", len(allTickets))
 	return allTickets, nil
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"strings"
 	"time"
@@ -83,7 +84,10 @@ func buildExportSearchQueryString(searchType SearchType, query SearchQuery) (str
 	}
 
 	joinedParts := strings.Join(queryParts, " ")
-	return url.QueryEscape(joinedParts), nil
+
+	q := url.QueryEscape(joinedParts)
+	slog.Debug("query created", "string", q)
+	return q, nil
 }
 
 func buildSearchQueryString(searchType SearchType, query SearchQuery) (string, error) {

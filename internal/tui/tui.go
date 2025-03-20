@@ -33,7 +33,7 @@ var (
 	verticalMarginHeight    int
 	verticalLeftForMainView int
 
-	menuTabs = []menuTab{tabMainPage, tabOrgs, tabUsers}
+	menuTabs = []menuTab{tabMainPage, tabOrgs, tabUsers, tabTickets}
 )
 
 type menuTab string
@@ -42,6 +42,7 @@ const (
 	tabMainPage menuTab = "M | Main Page"
 	tabOrgs     menuTab = "O | Organizations"
 	tabUsers    menuTab = "U | Users"
+	tabTickets  menuTab = "T | Tickets"
 )
 
 type RootModel struct {
@@ -56,9 +57,10 @@ type RootModel struct {
 }
 
 type submodels struct {
-	mainPage      tea.Model
-	orgMigration  tea.Model
-	userMigration tea.Model
+	mainPage        tea.Model
+	orgMigration    tea.Model
+	userMigration   tea.Model
+	ticketMigration tea.Model
 }
 
 type MigrationData struct {
@@ -76,15 +78,31 @@ type orgMigrationDetails struct {
 
 	UserMigSelected bool                             `json:"user_migration_selected"`
 	UsersToMigrate  map[string]*userMigrationDetails `json:"users_to_migrate"`
-	UserMigDone     bool                             `json:"user_migration_done"`
-	// TODO: ticketsToMigrate []*ticketMigrationDetails
+	UserMigDone     bool
+
+	TicketMigSelected   bool                               `json:"ticket_migration_selected"`
+	TicketsToMigrate    map[string]*ticketMigrationDetails `json:"tickets_to_migrate"`
+	TicketMigDone       bool                               `json:"ticket_migration_done"`
+	TicketMigrationDone bool
 }
 
 type userMigrationDetails struct {
-	ZendeskUser *zendesk.User `json:"zendesk_user"`
-	PsaContact  *psa.Contact  `json:"psa_contact"`
-	PsaCompany  *psa.Company
-	Migrated    bool `json:"migrated"`
+	ZendeskUser  *zendesk.User `json:"zendesk_user"`
+	PsaContact   *psa.Contact  `json:"psa_contact"`
+	PsaCompany   *psa.Company
+	UserMigrated bool `json:"migrated"`
+
+	HasTickets bool `json:"has_tickets"`
+}
+
+type ticketMigrationDetails struct {
+	ZendeskTicket     *zendesk.Ticket `json:"zendesk_ticket"`
+	PsaTicket         *psa.Ticket     `json:"psa_ticket"`
+	BaseTicketCreated bool            `json:"base_ticket_created"`
+
+	ZendeskComments []zendesk.Comment `json:"comments"`
+	PsaNotes        []psa.TicketNote
+	Migrated        bool `json:"migrated"`
 }
 
 type timeConversionDetails struct {
@@ -144,9 +162,10 @@ func NewModel(cx context.Context, client *migration.Client, mainDir string) (*Ro
 	mm := newMainMenuModel(client, data)
 
 	sm := &submodels{
-		mainPage:      newMainMenuModel(client, data),
-		orgMigration:  newOrgMigrationModel(client, data),
-		userMigration: newUserMigrationModel(client, data),
+		mainPage:        newMainMenuModel(client, data),
+		orgMigration:    newOrgMigrationModel(client, data),
+		userMigration:   newUserMigrationModel(client, data),
+		ticketMigration: newTicketMigrationModel(client, data),
 	}
 
 	return &RootModel{
@@ -162,9 +181,11 @@ func NewModel(cx context.Context, client *migration.Client, mainDir string) (*Ro
 }
 
 func (m *RootModel) Init() tea.Cmd {
-	return tea.Batch(
-		spnr.Tick,
-	)
+	if len(m.data.Orgs) > 0 {
+		m.submodels.orgMigration.(*orgMigrationModel).status = orgMigDone
+	}
+
+	return spnr.Tick
 }
 
 func (m *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -213,7 +234,13 @@ func (m *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				switch m.submodels.userMigration.(*userMigrationModel).status {
 				case userMigDone:
 					slog.Debug("user migration: user pressed space to run again")
-					return m, initForm()
+					return m, userMigInitForm()
+				}
+			case m.submodels.ticketMigration:
+				switch m.submodels.ticketMigration.(*ticketMigrationModel).status {
+				case ticketMigDone:
+					slog.Debug("ticket migration: user pressed space to run again")
+					return m, ticketMigInitForm()
 				}
 			}
 
@@ -221,11 +248,24 @@ func (m *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.activeTab != tabUsers {
 				slog.Debug("chose user migration model", "totalOrgs", len(m.data.Orgs))
 				m.activeTab = tabUsers
-				if m.submodels.userMigration.(*userMigrationModel).status == noOrgs {
-					cmds = append(cmds, initForm())
+				if m.submodels.orgMigration.(*orgMigrationModel).status == orgMigDone {
+					cmds = append(cmds, userMigInitForm())
 				}
 
 				cmds = append(cmds, switchModel(m.submodels.userMigration))
+
+				return m, tea.Sequence(cmds...)
+			}
+
+		case "t":
+			if m.activeTab != tabTickets {
+				slog.Debug("chose ticket migration model", "totalOrgs", len(m.data.Orgs))
+				m.activeTab = tabTickets
+				if m.submodels.orgMigration.(*orgMigrationModel).status == orgMigDone {
+					cmds = append(cmds, ticketMigInitForm())
+				}
+
+				cmds = append(cmds, switchModel(m.submodels.ticketMigration))
 
 				return m, tea.Sequence(cmds...)
 			}
@@ -256,6 +296,9 @@ func (m *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	cmds = append(cmds, cmd)
 
 	m.submodels.userMigration, cmd = m.submodels.userMigration.Update(msg)
+	cmds = append(cmds, cmd)
+
+	m.submodels.ticketMigration, cmd = m.submodels.ticketMigration.Update(msg)
 	cmds = append(cmds, cmd)
 
 	if m.ready {

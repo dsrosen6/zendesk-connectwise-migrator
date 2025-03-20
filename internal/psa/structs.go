@@ -212,3 +212,25 @@ type Type struct {
 	Id   int    `json:"id,omitempty"`
 	Name string `json:"name,omitempty"`
 }
+
+type Member struct {
+	Id         int    `json:"id"`
+	Identifier string `json:"identifier"`
+	Name       string `json:"name"`
+}
+
+type TicketNote struct {
+	Id                    int       `json:"id"`
+	TicketId              int       `json:"ticketId"`
+	Text                  string    `json:"text"`
+	DetailDescriptionFlag bool      `json:"detailDescriptionFlag"`
+	InternalAnalysisFlag  bool      `json:"internalAnalysisFlag"`
+	ResolutionFlag        bool      `json:"resolutionFlag"`
+	IssueFlag             bool      `json:"issueFlag"`
+	Contact               Contact   `json:"contact,omitempty"`
+	DateCreated           time.Time `json:"dateCreated"`
+	CreatedBy             string    `json:"createdBy"`
+	InternalFlag          bool      `json:"internalFlag"`
+	ExternalFlag          bool      `json:"externalFlag"`
+	Member                Member    `json:"member,omitempty"`
+}
