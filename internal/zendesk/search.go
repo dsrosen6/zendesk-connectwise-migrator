@@ -22,7 +22,6 @@ type SearchType string
 const (
 	TicketSearchType SearchType = "ticket"
 	OrgSearchType    SearchType = "organization"
-	UserSearchType   SearchType = "user"
 )
 
 func (c *Client) exportSearchRequest(ctx context.Context, searchType SearchType, query SearchQuery, pageSize int, target interface{}) error {

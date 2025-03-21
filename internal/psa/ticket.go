@@ -11,7 +11,7 @@ func (c *Client) GetTicket(ctx context.Context, ticketId int) (*Ticket, error) {
 	url := fmt.Sprintf("%s/service/tickets/%d", baseUrl, ticketId)
 	t := &Ticket{}
 
-	if err := c.ApiRequest(ctx, "GET", url, nil, &t); err != nil {
+	if _, err := c.ApiRequest(ctx, "GET", url, nil, &t); err != nil {
 		return nil, fmt.Errorf("an error occured getting the ticket: %w", err)
 	}
 
@@ -29,7 +29,7 @@ func (c *Client) PostTicket(ctx context.Context, ticket *Ticket) (*Ticket, error
 	body := bytes.NewReader(ticketBytes)
 	t := &Ticket{}
 
-	if err := c.ApiRequest(ctx, "POST", url, body, t); err != nil {
+	if _, err := c.ApiRequest(ctx, "POST", url, body, t); err != nil {
 		return nil, fmt.Errorf("an error occured posting the ticket: %w", err)
 	}
 

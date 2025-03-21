@@ -118,3 +118,27 @@ func (c *Client) GetOrganizationUsers(ctx context.Context, orgId int64) ([]User,
 
 	return allUsers, nil
 }
+
+func (c *Client) GetAgents(ctx context.Context) ([]User, error) {
+	initialUrl := fmt.Sprintf("%s/users?page[size]=100&role[]=admin&role[]=agent", c.baseUrl)
+	var allAgents []User
+	currentPage := &UsersResp{}
+
+	if err := c.ApiRequest(ctx, "GET", initialUrl, nil, &currentPage); err != nil {
+		return nil, fmt.Errorf("an error occured getting agents: %w", err)
+	}
+
+	allAgents = append(allAgents, currentPage.Users...)
+
+	for currentPage.Meta.HasMore {
+		nextPage := &UsersResp{}
+		if err := c.ApiRequest(ctx, "GET", currentPage.Links.Next, nil, &nextPage); err != nil {
+			return nil, fmt.Errorf("an error occured getting agents: %w", err)
+		}
+
+		allAgents = append(allAgents, nextPage.Users...)
+		currentPage = nextPage
+	}
+
+	return allAgents, nil
+}

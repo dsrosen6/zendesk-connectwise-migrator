@@ -28,7 +28,7 @@ func (c *Client) PostContact(ctx context.Context, payload *ContactPostBody) (*Co
 	body := bytes.NewReader(jsonBytes)
 	respContact := Contact{}
 
-	if err := c.ApiRequest(ctx, "POST", u, body, &respContact); err != nil {
+	if _, err := c.ApiRequest(ctx, "POST", u, body, &respContact); err != nil {
 		slog.Error("failed to post post new connectwise contact", "body", string(jsonBytes))
 		return nil, fmt.Errorf("an error occured creating the contact: %w", err)
 	}
@@ -41,7 +41,7 @@ func (c *Client) GetContactByEmail(ctx context.Context, email string) (*Contact,
 	u := fmt.Sprintf("%s/company/contacts?childConditions=%s", baseUrl, query)
 	contacts := ContactsResp{}
 
-	if err := c.ApiRequest(ctx, "GET", u, nil, &contacts); err != nil {
+	if _, err := c.ApiRequest(ctx, "GET", u, nil, &contacts); err != nil {
 		return nil, fmt.Errorf("an error occured searching for the contact by email: %w", err)
 	}
 

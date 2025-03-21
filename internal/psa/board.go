@@ -9,7 +9,8 @@ func (c *Client) GetBoards(ctx context.Context) ([]Board, error) {
 	url := fmt.Sprintf("%s/service/boards", baseUrl)
 	var b []Board
 
-	if err := c.ApiRequest(ctx, "GET", url, nil, &b); err != nil {
+	// TODO: Handle Pagination
+	if _, err := c.ApiRequest(ctx, "GET", url, nil, &b); err != nil {
 		return nil, fmt.Errorf("an error occured getting boards: %w", err)
 	}
 
@@ -19,7 +20,9 @@ func (c *Client) GetBoards(ctx context.Context) ([]Board, error) {
 func (c *Client) GetBoardStatuses(ctx context.Context, boardId int) ([]Status, error) {
 	url := fmt.Sprintf("%s/service/boards/%d/statuses", baseUrl, boardId)
 	var b []Status
-	if err := c.ApiRequest(ctx, "GET", url, nil, &b); err != nil {
+
+	// TODO: Handle Pagination
+	if _, err := c.ApiRequest(ctx, "GET", url, nil, &b); err != nil {
 		return nil, fmt.Errorf("an error occured getting board statuses: %w", err)
 	}
 

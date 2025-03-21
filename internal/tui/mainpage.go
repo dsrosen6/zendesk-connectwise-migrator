@@ -10,12 +10,6 @@ type mainMenuModel struct {
 	migrationData   *MigrationData
 }
 
-const (
-	mainMenuChoice = "mainMenuChoice"
-	orgMigrator    = "orgMigrator"
-	userMigrator   = "userMigrator"
-)
-
 func newMainMenuModel(mc *migration.Client, data *MigrationData) *mainMenuModel {
 	return &mainMenuModel{
 		migrationClient: mc,

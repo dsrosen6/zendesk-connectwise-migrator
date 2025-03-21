@@ -14,7 +14,7 @@ func (c *Client) GetCompanyByName(ctx context.Context, name string) (*Company, e
 	u := fmt.Sprintf("%s/company/companies?conditions=%s", baseUrl, query)
 	cos := CompaniesResp{}
 
-	if err := c.ApiRequest(ctx, "GET", u, nil, &cos); err != nil {
+	if _, err := c.ApiRequest(ctx, "GET", u, nil, &cos); err != nil {
 		return nil, fmt.Errorf("an error occured getting the company: %w", err)
 	}
 

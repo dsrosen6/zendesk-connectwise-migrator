@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/viper"
 	"log/slog"
 	"sort"
+	"strconv"
 	"time"
 )
 
@@ -24,8 +25,9 @@ var (
 )
 
 type Config struct {
-	Zendesk     ZendeskConfig     `mapstructure:"zendesk" json:"zendesk"`
-	Connectwise ConnectwiseConfig `mapstructure:"connectwise_psa" json:"connectwise_psa"`
+	Zendesk       ZendeskConfig           `mapstructure:"zendesk" json:"zendesk"`
+	Connectwise   ConnectwiseConfig       `mapstructure:"connectwise_psa" json:"connectwise_psa"`
+	AgentMappings map[string]AgentMapping `mapstructure:"agent_mappings" json:"agent_mappings"`
 }
 
 type ZendeskConfig struct {
@@ -59,6 +61,11 @@ type ZendeskFieldIds struct {
 
 type ConnectwiseFieldIds struct {
 	ZendeskTicketId int `mapstructure:"zendesk_ticket_id" json:"zendesk_ticket_id"`
+}
+
+type AgentMapping struct {
+	Email string `mapstructure:"email_address" json:"email_address"`
+	PsaId int    `mapstructure:"psa_member_id" json:"psa_member_id"`
 }
 
 // InitConfig reads in config file
@@ -142,6 +149,11 @@ func (c *Client) validatePostClient(ctx context.Context) error {
 
 	if err := runSpinner("Testing API connections", action); err != nil {
 		return fmt.Errorf("testing API connections: %w", err)
+	}
+
+	action = func(ctx context.Context) error { return c.processAgentMappings(ctx) }
+	if err := runSpinner("Checking agent mappings", action); err != nil {
+		return fmt.Errorf("processing agent mappings: %w", err)
 	}
 
 	if err := c.Cfg.validateZendeskCustomFields(); err != nil {
@@ -271,6 +283,58 @@ func (cfg *Config) validateZendeskCustomFields() error {
 		"psaCompanyId", cfg.Zendesk.FieldIds.PsaContactId,
 		"psaContactId", cfg.Zendesk.FieldIds.PsaContactId,
 	)
+	return nil
+}
+
+func (c *Client) processAgentMappings(ctx context.Context) error {
+	slog.Info("processing agent mappings")
+	if c.Cfg.AgentMappings == nil {
+		c.Cfg.AgentMappings = make(map[string]AgentMapping)
+	}
+
+	zendeskAgents, err := c.ZendeskClient.GetAgents(ctx)
+	if err != nil {
+		return fmt.Errorf("getting zendesk agents: %w", err)
+	}
+
+	psaMembers, err := c.CwClient.GetMembers(ctx)
+	if err != nil {
+		return fmt.Errorf("getting connectwise psa members: %w", err)
+	}
+
+	for _, agent := range zendeskAgents {
+		idString := strconv.Itoa(agent.Id)
+		slog.Debug("checking agent mapping", "agentEmail", agent.Email, "zendeskId", agent.Id)
+		var psaId int
+		for _, member := range psaMembers {
+			if agent.Email == member.PrimaryEmail {
+				psaId = member.Id
+				continue
+			}
+		}
+
+		if psaId == 0 {
+			slog.Warn("no matching psa member found for zendesk agent", "agent", agent.Email)
+			continue
+		}
+
+		if _, ok := c.Cfg.AgentMappings[idString]; ok && c.Cfg.AgentMappings[idString].PsaId == psaId {
+			slog.Debug("agent mapping already exists", "agentId", agent.Id, "psaId", psaId)
+			continue
+		}
+
+		c.Cfg.AgentMappings[idString] = AgentMapping{Email: agent.Email, PsaId: psaId}
+		slog.Info("created or updated agent mapping",
+			"agentEmail", agent.Email,
+			"zendeskId", agent.Id,
+			"psaId", psaId)
+	}
+
+	viper.Set("agent_mappings", c.Cfg.AgentMappings)
+	if err := viper.WriteConfig(); err != nil {
+		return fmt.Errorf("writing agent mappings to config file: %w", err)
+	}
+
 	return nil
 }
 

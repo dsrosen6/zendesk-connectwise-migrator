@@ -214,9 +214,17 @@ type Type struct {
 }
 
 type Member struct {
-	Id         int    `json:"id"`
-	Identifier string `json:"identifier"`
-	Name       string `json:"name"`
+	Id                  int    `json:"id"`
+	Identifier          string `json:"identifier"`
+	DisableOnlineFlag   bool   `json:"disableOnlineFlag"`
+	LicenseClass        string `json:"licenseClass"`
+	EnableMobileGpsFlag bool   `json:"enableMobileGpsFlag"`
+	InactiveFlag        bool   `json:"inactiveFlag"`
+	ClientId            string `json:"clientId"`
+	FirstName           string `json:"firstName"`
+	OfficeEmail         string `json:"officeEmail,omitempty"`
+	DefaultEmail        string `json:"defaultEmail"`
+	PrimaryEmail        string `json:"primaryEmail,omitempty"`
 }
 
 type TicketNote struct {

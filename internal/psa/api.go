@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -30,6 +31,11 @@ type Creds struct {
 	ClientId   string `mapstructure:"client_id" json:"client_id"`
 }
 
+type PaginationDetails struct {
+	HasMorePages bool
+	NextLink     string
+}
+
 func NewClient(creds Creds, httpClient *http.Client) *Client {
 	username := fmt.Sprintf("%s+%s", creds.CompanyId, creds.PublicKey)
 
@@ -44,7 +50,7 @@ func (c *Client) ConnectionTest(ctx context.Context) error {
 	url := fmt.Sprintf("%s/company/companies?pageSize=1", baseUrl)
 	co := CompaniesResp{}
 
-	if err := c.ApiRequest(ctx, "GET", url, nil, &co); err != nil {
+	if _, err := c.ApiRequest(ctx, "GET", url, nil, &co); err != nil {
 		return errors.New("failed to connect to Connectwise API")
 	}
 
@@ -52,23 +58,28 @@ func (c *Client) ConnectionTest(ctx context.Context) error {
 }
 
 // ApiRequest is a wrapper for apiRequest, meant for more streamlined error logging.
-func (c *Client) ApiRequest(ctx context.Context, method, url string, body io.Reader, target interface{}) error {
-	if err := c.apiRequest(ctx, method, url, body, target); err != nil {
+func (c *Client) ApiRequest(ctx context.Context, method, url string, body io.Reader, target interface{}) (PaginationDetails, error) {
+	pagination, err := c.apiRequest(ctx, method, url, body, target)
+	if err != nil {
 		slog.Warn("Connectwise API Error", "error", err)
-		return fmt.Errorf("running ConnectWise PSA API request: %w", err)
+		return pagination, fmt.Errorf("running ConnectWise PSA API request: %w", err)
 	}
 
-	return nil
+	return pagination, nil
 }
 
-func (c *Client) apiRequest(ctx context.Context, method, url string, body io.Reader, target interface{}) error {
+func (c *Client) apiRequest(ctx context.Context, method, url string, body io.Reader, target interface{}) (PaginationDetails, error) {
 	const maxRetries = 3
 	var retryAfter int
+	p := &PaginationDetails{
+		HasMorePages: false,
+		NextLink:     "",
+	}
 
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		req, err := http.NewRequestWithContext(ctx, method, url, body)
 		if err != nil {
-			return fmt.Errorf("an error occured creating the request: %w", err)
+			return *p, fmt.Errorf("an error occured creating the request: %w", err)
 		}
 
 		req.Header.Set("Content-Type", "application/json")
@@ -77,22 +88,30 @@ func (c *Client) apiRequest(ctx context.Context, method, url string, body io.Rea
 
 		res, err := c.httpClient.Do(req)
 		if err != nil {
-			return fmt.Errorf("an error occured sending the request: %w", err)
+			return *p, fmt.Errorf("an error occured sending the request: %w", err)
 		}
 
 		if res.StatusCode == http.StatusOK || res.StatusCode == http.StatusCreated {
 			data, err := io.ReadAll(res.Body)
 			if err != nil {
-				return fmt.Errorf("an error occured reading the response body: %w", err)
+				return *p, fmt.Errorf("an error occured reading the response body: %w", err)
 			}
 
 			if target != nil {
 				if err := json.Unmarshal(data, target); err != nil {
-					return fmt.Errorf("an error occured unmarshaling the response to JSON: %w", err)
+					return *p, fmt.Errorf("an error occured unmarshaling the response to JSON: %w", err)
 				}
 			}
 
-			return nil
+			linkHeader := res.Header.Get("Link")
+			if linkHeader != "" {
+				if nextUrl, found := parseLinkHeader(linkHeader, "next"); found {
+					p.HasMorePages = true
+					p.NextLink = nextUrl
+				}
+			}
+
+			return *p, nil
 		}
 
 		if res.StatusCode == http.StatusTooManyRequests {
@@ -120,15 +139,32 @@ func (c *Client) apiRequest(ctx context.Context, method, url string, body io.Rea
 
 		err = res.Body.Close()
 		if err != nil {
-			return err
+			return *p, err
 		}
 		time.Sleep(time.Duration(retryAfter) * time.Second)
 	}
 
-	return fmt.Errorf("max retries exceeded")
+	return *p, fmt.Errorf("max retries exceeded")
 }
 
 func basicAuth(username, password string) string {
 	auth := username + ":" + password
 	return "Basic " + base64.StdEncoding.EncodeToString([]byte(auth))
+}
+
+func parseLinkHeader(linkHeader, rel string) (string, bool) {
+	links := strings.Split(linkHeader, ",")
+	for _, link := range links {
+		parts := strings.Split(strings.TrimSpace(link), ";")
+		if len(parts) < 2 {
+			continue
+		}
+		urlPart := strings.Trim(parts[0], "<>")
+		relPart := strings.TrimSpace(parts[1])
+		if relPart == fmt.Sprintf(`rel="%s"`, rel) {
+			return urlPart, true
+		}
+	}
+
+	return "", false
 }
