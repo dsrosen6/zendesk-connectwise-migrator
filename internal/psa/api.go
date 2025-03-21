@@ -133,7 +133,7 @@ func (c *Client) apiRequest(ctx context.Context, method, url string, body io.Rea
 				"totalRetries", fmt.Sprintf("%d/%d", attempt, maxRetries))
 		} else {
 			retryAfter = 15
-			slog.Warn("connectwise API request failed - waiting 15 seconds if retries remain", "statusCode", res.StatusCode,
+			slog.Warn("connectwise API request failed - waiting 15 seconds if retries remain", "statusCode", res.StatusCode, "errorText", res.Body,
 				"totalRetries", fmt.Sprintf("%d/%d", attempt, maxRetries))
 		}
 

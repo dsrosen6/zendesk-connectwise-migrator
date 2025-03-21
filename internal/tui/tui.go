@@ -70,10 +70,10 @@ type MigrationData struct {
 }
 
 type PsaInfo struct {
-	Board                psa.Board
-	StatusOpen           psa.Status
-	StatusClosed         psa.Status
-	ZendeskTicketFieldId psa.CustomField
+	Board                *psa.Board
+	StatusOpen           *psa.Status
+	StatusClosed         *psa.Status
+	ZendeskTicketFieldId *psa.CustomField
 }
 
 type timeConversionDetails struct {
@@ -131,10 +131,10 @@ func NewModel(cx context.Context, client *migration.Client, mainDir string) (*Ro
 	}
 
 	data.PsaInfo = PsaInfo{
-		Board:        psa.Board{Id: client.Cfg.Connectwise.DestinationBoardId},
-		StatusOpen:   psa.Status{Id: client.Cfg.Connectwise.OpenStatusId},
-		StatusClosed: psa.Status{Id: client.Cfg.Connectwise.ClosedStatusId},
-		ZendeskTicketFieldId: psa.CustomField{
+		Board:        &psa.Board{Id: client.Cfg.Connectwise.DestinationBoardId},
+		StatusOpen:   &psa.Status{Id: client.Cfg.Connectwise.OpenStatusId},
+		StatusClosed: &psa.Status{Id: client.Cfg.Connectwise.ClosedStatusId},
+		ZendeskTicketFieldId: &psa.CustomField{
 			Id: client.Cfg.Connectwise.FieldIds.ZendeskTicketId,
 		},
 	}

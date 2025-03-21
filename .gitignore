@@ -3,3 +3,4 @@
 **/*_test.go
 migrator_config.json
 .idea
+start_fresh_script.sh
