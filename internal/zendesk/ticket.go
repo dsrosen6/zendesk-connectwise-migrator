@@ -101,38 +101,34 @@ type From struct {
 }
 
 type To struct {
-	Name     string  `json:"name"`
-	Address  string  `json:"address"`
-	EmailCcs []int64 `json:"email_ccs,omitempty"`
+	Name     string `json:"name"`
+	Address  string `json:"address"`
+	EmailCcs []any  `json:"email_ccs,omitempty"`
 }
 
-func (c *Client) GetTicketsWithQuery(ctx context.Context, q SearchQuery, pageSize int, justGetOne bool) ([]Ticket, error) {
+func (c *Client) GetTicketsWithQuery(ctx context.Context, q SearchQuery, pageSize int, limit int) ([]Ticket, error) {
 	var allTickets []Ticket
 	currentPage := &TicketSearchResp{}
 
 	if err := c.exportSearchRequest(ctx, TicketSearchType, q, pageSize, &currentPage); err != nil {
 		return nil, fmt.Errorf("an error occured getting the tickets: %w", err)
 	}
-	slog.Debug("got initial page of tickets", "totalInitialTickets", len(currentPage.Tickets))
 
 	allTickets = append(allTickets, currentPage.Tickets...)
 
-	// used to only return one page - for checking presence of at least one ticket
-	if justGetOne {
-		return allTickets, nil
-	}
-
 	for currentPage.Meta.HasMore {
+		if limit > 0 && len(allTickets) >= limit {
+			break
+		}
+
 		nextPage := &TicketSearchResp{}
 		if err := c.ApiRequest(ctx, "GET", currentPage.Links.Next, nil, &nextPage); err != nil {
 			return nil, fmt.Errorf("an error occured getting next page of tickets: %w", err)
 		}
-		slog.Debug("got next page of tickets", "totalTicketsInPage", len(nextPage.Tickets))
 		allTickets = append(allTickets, nextPage.Tickets...)
 		currentPage = nextPage
 	}
-
-	slog.Debug("finished getting tickets for org", "totalTicketsFound", len(allTickets))
+	
 	return allTickets, nil
 }
 

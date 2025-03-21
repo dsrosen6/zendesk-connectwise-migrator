@@ -57,6 +57,8 @@ type Contact struct {
 type Ticket struct {
 	Id                         int             `json:"id,omitempty"`
 	Summary                    string          `json:"summary,omitempty"`
+	InitialDescription         string          `json:"initialDescription,omitempty"`
+	InitialInternalAnalysis    string          `json:"InitialInternalAnalysis,omitempty"`
 	RecordType                 string          `json:"recordType,omitempty"`
 	Board                      Board           `json:"board,omitempty"`
 	Status                     Status          `json:"status,omitempty"`

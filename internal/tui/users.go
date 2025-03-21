@@ -25,6 +25,15 @@ type userMigrationModel struct {
 	done   bool
 }
 
+type userMigrationDetails struct {
+	ZendeskUser  *zendesk.User `json:"zendesk_user"`
+	PsaContact   *psa.Contact  `json:"psa_contact"`
+	PsaCompany   *psa.Company
+	UserMigrated bool `json:"migrated"`
+
+	HasTickets bool `json:"has_tickets"`
+}
+
 type userMigTotals struct {
 	totalOrgsToMigrateUsers int
 	totalOrgsChecked        int

@@ -12,7 +12,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/migration"
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/psa"
-	"github.com/dsrosen/zendesk-connectwise-migrator/internal/zendesk"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -66,43 +65,15 @@ type submodels struct {
 type MigrationData struct {
 	Output strings.Builder                 `json:"output"`
 	Orgs   map[string]*orgMigrationDetails `json:"orgs"`
+
+	PsaInfo PsaInfo
 }
 
-type orgMigrationDetails struct {
-	ZendeskOrg *zendesk.Organization `json:"zendesk_org"`
-	PsaOrg     *psa.Company          `json:"psa_org"`
-
-	Tag         *tagDetails `json:"zendesk_tag"`
-	HasTickets  bool        `json:"has_tickets"`
-	OrgMigrated bool        `json:"org_migrated"`
-
-	UserMigSelected bool                             `json:"user_migration_selected"`
-	UsersToMigrate  map[string]*userMigrationDetails `json:"users_to_migrate"`
-	UserMigDone     bool
-
-	TicketMigSelected   bool                               `json:"ticket_migration_selected"`
-	TicketsToMigrate    map[string]*ticketMigrationDetails `json:"tickets_to_migrate"`
-	TicketMigDone       bool                               `json:"ticket_migration_done"`
-	TicketMigrationDone bool
-}
-
-type userMigrationDetails struct {
-	ZendeskUser  *zendesk.User `json:"zendesk_user"`
-	PsaContact   *psa.Contact  `json:"psa_contact"`
-	PsaCompany   *psa.Company
-	UserMigrated bool `json:"migrated"`
-
-	HasTickets bool `json:"has_tickets"`
-}
-
-type ticketMigrationDetails struct {
-	ZendeskTicket     *zendesk.Ticket `json:"zendesk_ticket"`
-	PsaTicket         *psa.Ticket     `json:"psa_ticket"`
-	BaseTicketCreated bool            `json:"base_ticket_created"`
-
-	ZendeskComments []zendesk.Comment `json:"comments"`
-	PsaNotes        []psa.TicketNote
-	Migrated        bool `json:"migrated"`
+type PsaInfo struct {
+	Board                psa.Board
+	StatusOpen           psa.Status
+	StatusClosed         psa.Status
+	ZendeskTicketFieldId psa.CustomField
 }
 
 type timeConversionDetails struct {
@@ -157,6 +128,15 @@ func NewModel(cx context.Context, client *migration.Client, mainDir string) (*Ro
 		}
 	} else {
 		slog.Debug("imported migration data from file")
+	}
+
+	data.PsaInfo = PsaInfo{
+		Board:        psa.Board{Id: client.Cfg.Connectwise.DestinationBoardId},
+		StatusOpen:   psa.Status{Id: client.Cfg.Connectwise.OpenStatusId},
+		StatusClosed: psa.Status{Id: client.Cfg.Connectwise.ClosedStatusId},
+		ZendeskTicketFieldId: psa.CustomField{
+			Id: client.Cfg.Connectwise.FieldIds.ZendeskTicketId,
+		},
 	}
 
 	mm := newMainMenuModel(client, data)

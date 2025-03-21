@@ -20,6 +20,24 @@ type orgMigrationModel struct {
 	done   bool
 }
 
+type orgMigrationDetails struct {
+	ZendeskOrg *zendesk.Organization `json:"zendesk_org"`
+	PsaOrg     *psa.Company          `json:"psa_org"`
+
+	Tag         *tagDetails `json:"zendesk_tag"`
+	HasTickets  bool        `json:"has_tickets"`
+	OrgMigrated bool        `json:"org_migrated"`
+
+	UserMigSelected bool                             `json:"user_migration_selected"`
+	UsersToMigrate  map[string]*userMigrationDetails `json:"users_to_migrate"`
+	UserMigDone     bool
+
+	TicketMigSelected   bool                               `json:"ticket_migration_selected"`
+	TicketsToMigrate    map[string]*ticketMigrationDetails `json:"tickets_to_migrate"`
+	TicketMigDone       bool                               `json:"ticket_migration_done"`
+	TicketMigrationDone bool
+}
+
 type tagDetails struct {
 	Name      string    `json:"name"`
 	StartDate time.Time `json:"start_date"`
@@ -222,7 +240,7 @@ func (m *orgMigrationModel) checkOrg(org *orgMigrationDetails) tea.Cmd {
 
 		q.TicketsOrganizationId = org.ZendeskOrg.Id
 
-		tickets, err := m.client.ZendeskClient.GetTicketsWithQuery(ctx, q, 20, true)
+		tickets, err := m.client.ZendeskClient.GetTicketsWithQuery(ctx, q, 20, 1)
 		if err != nil {
 			slog.Error("getting tickets for org", "orgName", org.ZendeskOrg.Name, "error", err)
 			m.data.writeToOutput(badRedOutput("ERROR", fmt.Errorf("couldn't get tickets for org %s: %w", org.ZendeskOrg.Name, err)))
