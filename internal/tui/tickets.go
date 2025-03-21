@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"sort"
 	"strconv"
+	"strings"
 )
 
 var testLimit = 5
@@ -329,9 +330,14 @@ func (m *ticketMigrationModel) createTicketNotes(org *orgMigrationDetails, ticke
 			note.InternalAnalysisFlag = true
 		}
 
-		note.Text = fmt.Sprintf(
-			"Date/Time Submitted: %s\n\n%s", comment.CreatedAt, comment.PlainBody,
-		)
+		note.Text = comment.CreatedAt.Format("1/2/2006 3:04PM")
+
+		ccs := m.getCcString(org, &comment)
+		if ccs != "" {
+			note.Text += fmt.Sprintf("\nCCs: %s", ccs)
+		}
+
+		note.Text += fmt.Sprintf("\n\n%s", comment.PlainBody)
 
 		if err := m.client.CwClient.PostTicketNote(ctx, ticket.PsaTicket.Id, note); err != nil {
 			return fmt.Errorf("creating note in ticket: %w", err)
@@ -339,6 +345,31 @@ func (m *ticketMigrationModel) createTicketNotes(org *orgMigrationDetails, ticke
 	}
 
 	return nil
+}
+
+func (m *ticketMigrationModel) getCcString(org *orgMigrationDetails, comment *zendesk.Comment) string {
+	var ccs []string
+	for _, cc := range comment.Via.Source.To.EmailCcs {
+		// check if cc is a string
+		if cc, ok := cc.(string); ok {
+			ccs = append(ccs, cc)
+			continue
+		}
+
+		if cc, ok := cc.(int); ok {
+			ccString := strconv.Itoa(cc)
+			if agent, ok := m.client.Cfg.AgentMappings[ccString]; ok {
+				slog.Debug("cc is in zendesk agent mappings", "agent", ccString, "email", agent.Email)
+				ccs = append(ccs, agent.Email)
+			} else {
+				if contact, ok := org.UsersToMigrate[ccString]; ok {
+					slog.Debug("cc is in org data", "id", ccString, "email", contact.ZendeskUser.Email)
+					ccs = append(ccs, contact.ZendeskUser.Email)
+				}
+			}
+		}
+	}
+	return strings.Join(ccs, ", ")
 }
 
 func (md *orgMigrationDetails) addTicketToOrgMap(idString string, ticket *ticketMigrationDetails) {
