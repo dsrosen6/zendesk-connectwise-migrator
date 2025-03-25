@@ -101,6 +101,11 @@ type Territory struct {
 	Name string `json:"name,omitempty"`
 }
 
+type BoardType struct {
+	Id   int    `json:"id"`
+	Name string `json:"name"`
+}
+
 type Member struct {
 	Id           int    `json:"id,omitempty"`
 	Identifier   string `json:"identifier,omitempty"`

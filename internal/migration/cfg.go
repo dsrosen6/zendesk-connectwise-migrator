@@ -47,6 +47,7 @@ type ConnectwiseConfig struct {
 	Creds              psa.Creds           `mapstructure:"api_creds" json:"api_creds"`
 	ClosedStatusId     int                 `mapstructure:"closed_status_id" json:"closed_status_id"`
 	OpenStatusId       int                 `mapstructure:"open_status_id" json:"open_status_id"`
+	TicketType         int                 `mapstructure:"ticket_type" json:"ticket_type"`
 	DestinationBoardId int                 `mapstructure:"destination_board_id" json:"destination_board_id"`
 	FieldIds           ConnectwiseFieldIds `mapstructure:"field_ids" json:"field_ids"`
 
@@ -177,6 +178,12 @@ func (c *Client) validatePostClient(ctx context.Context) error {
 	if err := c.Cfg.validateConnectwiseBoardId(); err != nil {
 		if err := c.runBoardForm(ctx); err != nil {
 			return fmt.Errorf("running board form: %w", err)
+		}
+	}
+
+	if err := c.Cfg.validateConnectwiseBoardType(); err != nil {
+		if err := c.runTicketTypeForm(ctx, c.Cfg.Connectwise.DestinationBoardId); err != nil {
+			return fmt.Errorf("running ticket type form: %w", err)
 		}
 	}
 
@@ -434,6 +441,63 @@ func (c *Client) runBoardForm(ctx context.Context) error {
 	c.Cfg.Connectwise.DestinationBoardId = boardsMap[s]
 
 	viper.Set("connectwise_psa.destination_board_id", boardsMap[s])
+	if err := viper.WriteConfig(); err != nil {
+		return fmt.Errorf("writing config file: %w", err)
+	}
+
+	return nil
+}
+
+func (cfg *Config) validateConnectwiseBoardType() error {
+	if cfg.Connectwise.TicketType == 0 {
+		slog.Warn("no ticket type set")
+		return errors.New("no ticket type set")
+	}
+
+	slog.Debug("ticket type id", "id", cfg.Connectwise.TicketType)
+	return nil
+}
+
+func (c *Client) runTicketTypeForm(ctx context.Context, boardId int) error {
+	var statuses []psa.BoardType
+	var err error
+	action := func(ctx context.Context) error {
+		statuses, err = c.CwClient.GetBoardTypes(ctx, boardId)
+		return err
+	}
+
+	if err := runSpinner("Getting ConnectWise PSA ticket types", action); err != nil {
+		return fmt.Errorf("getting ConnectWise PSA ticket types: %w", err)
+	}
+
+	var types []string
+	typeMap := make(map[string]int)
+	for _, t := range statuses {
+		types = append(types, t.Name)
+		typeMap[t.Name] = t.Id
+	}
+
+	sort.Strings(types)
+	var tp string
+	form := huh.NewForm(
+		huh.NewGroup(
+			huh.NewSelect[string]().
+				Title("Choose the type you'd like tickets created as").
+				Options(huh.NewOptions(types...)...).
+				Value(&tp)),
+	).WithShowHelp(false).WithKeyMap(customKeyMap()).WithTheme(CustomHuhTheme())
+
+	if err := form.Run(); err != nil {
+		return fmt.Errorf("running ticket type form: %w", err)
+	}
+
+	if _, ok := typeMap[tp]; !ok {
+		return errors.New("invalid type selection")
+	}
+
+	c.Cfg.Connectwise.TicketType = typeMap[tp]
+
+	viper.Set("connectwise_psa.ticket_type", typeMap[tp])
 	if err := viper.WriteConfig(); err != nil {
 		return fmt.Errorf("writing config file: %w", err)
 	}
