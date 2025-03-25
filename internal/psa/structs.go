@@ -19,7 +19,7 @@ type ContactPostBody struct {
 	Company   struct {
 		Id int `json:"id,omitempty"`
 	} `json:"company"`
-	CommunicationItems []CommunicationItem `json:"communicationItemsm,omitempty"`
+	CommunicationItems []CommunicationItem `json:"communicationItems,omitempty"`
 }
 
 type Contact struct {

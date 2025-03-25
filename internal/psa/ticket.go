@@ -23,7 +23,8 @@ func (c *Client) GetTickets(ctx context.Context, childConditionQuery *string) ([
 		q = "&customFieldConditions=" + url.QueryEscape(*childConditionQuery)
 	}
 
-	u := fmt.Sprintf("%s/service/tickets?page=1&pageSize=100%s", baseUrl, q)
+	u := fmt.Sprintf("%s/service/tickets?page=1&pageSize=1000%s", baseUrl, q)
+	slog.Debug("getting psa tickets via connectwise api", "url", u)
 	var allTickets []Ticket
 	var currentPage []Ticket
 	var pagination PaginationDetails

@@ -375,7 +375,6 @@ func (m *userMigrationModel) createPsaContact(user *userMigrationDetails) (*psa.
 		{
 			Type:              psa.CommunicationItemType{Name: "Email"},
 			Value:             user.ZendeskUser.Email,
-			DefaultFlag:       true,
 			CommunicationType: "Email",
 		},
 	}

@@ -32,10 +32,7 @@ type orgMigrationDetails struct {
 	UsersToMigrate  map[string]*userMigrationDetails `json:"users_to_migrate"`
 	UserMigDone     bool
 
-	TicketMigSelected   bool                               `json:"ticket_migration_selected"`
-	TicketsToMigrate    map[string]*ticketMigrationDetails `json:"tickets_to_migrate"`
-	TicketMigDone       bool                               `json:"ticket_migration_done"`
-	TicketMigrationDone bool
+	TicketMigSelected bool `json:"ticket_migration_selected"`
 }
 
 type tagDetails struct {
@@ -196,10 +193,9 @@ func (m *orgMigrationModel) getOrgs() tea.Cmd {
 					slog.Debug("adding org to migration data", "zendeskOrgId", idString, "orgName", org.Name)
 
 					md := &orgMigrationDetails{
-						ZendeskOrg:       &org,
-						Tag:              &tag,
-						UsersToMigrate:   make(map[string]*userMigrationDetails),
-						TicketsToMigrate: make(map[string]*ticketMigrationDetails),
+						ZendeskOrg:     &org,
+						Tag:            &tag,
+						UsersToMigrate: make(map[string]*userMigrationDetails),
 					}
 
 					m.data.addOrgToOrgsMap(idString, md)

@@ -39,6 +39,7 @@ type ticketMigTotals struct {
 	totalOrgsToMigrateTickets int
 	totalOrgsChecked          int
 	totalTicketsToMigrate     int
+	totalAlreadyMigrated      int
 	totalTicketsMigrated      int
 	totalCommentsCreated      int
 	totalOrgsDone             int
@@ -55,14 +56,18 @@ func switchTicketMigStatus(s ticketMigStatus) tea.Cmd {
 	}
 }
 
+type fatalErrMsg struct {
+	Msg string
+	Err error
+}
+
 const (
-	ticketMigNoOrgs                ticketMigStatus = "noOrgs"
-	ticketMigWaitingForOrgs        ticketMigStatus = "waitingForOrgs"
-	ticketMigPickingOrgs           ticketMigStatus = "pickingOrgs"
-	ticketMigGettingPsaTickets     ticketMigStatus = "gettingPsaTickets"
-	ticketMigGettingZendeskTickets ticketMigStatus = "gettingZendeskTickets"
-	ticketMigMigratingTickets      ticketMigStatus = "migratingTickets"
-	ticketMigDone                  ticketMigStatus = "ticketMigDone"
+	ticketMigNoOrgs            ticketMigStatus = "noOrgs"
+	ticketMigWaitingForOrgs    ticketMigStatus = "waitingForOrgs"
+	ticketMigPickingOrgs       ticketMigStatus = "pickingOrgs"
+	ticketMigGettingPsaTickets ticketMigStatus = "gettingPsaTickets"
+	ticketMigMigratingTickets  ticketMigStatus = "migratingTickets"
+	ticketMigDone              ticketMigStatus = "ticketMigDone"
 )
 
 type ticketMigInitFormMsg struct{}
@@ -102,47 +107,25 @@ func (m *ticketMigrationModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case switchTicketMigStatusMsg:
+		m.status = ticketMigStatus(msg)
 		switch msg {
-		case switchTicketMigStatusMsg(ticketMigNoOrgs):
-			m.status = ticketMigNoOrgs
-
-		case switchTicketMigStatusMsg(ticketMigWaitingForOrgs):
-			m.status = ticketMigWaitingForOrgs
 
 		case switchTicketMigStatusMsg(ticketMigPickingOrgs):
 			slog.Debug("got pickingOrgs status")
 			m.form = m.orgSelectionForm()
-			m.status = ticketMigPickingOrgs
 
 		case switchTicketMigStatusMsg(ticketMigGettingPsaTickets):
-			m.status = ticketMigGettingPsaTickets
-
-		case switchTicketMigStatusMsg(ticketMigGettingZendeskTickets):
-			m.ticketMigTotals = ticketMigTotals{}
-			m.status = ticketMigGettingZendeskTickets
-			for _, org := range m.data.Orgs {
-				if org.OrgMigrated && org.TicketMigSelected {
-					m.totalOrgsToMigrateTickets++
-					cmds = append(cmds, m.getTicketsToMigrate(org))
-				}
-			}
-
-			slog.Debug("ticket migration: orgs picked", "totalOrgs", m.totalOrgsToMigrateTickets)
-			return m, tea.Sequence(cmds...)
+			return m, tea.Sequence(m.getAlreadyMigrated(), saveDataCmd())
 
 		case switchTicketMigStatusMsg(ticketMigMigratingTickets):
-			m.status = ticketMigMigratingTickets
 			for _, org := range m.data.Orgs {
 				if org.OrgMigrated && org.TicketMigSelected {
-					cmds = append(cmds, m.migrateTickets(org))
+					cmds = append(cmds, m.runMigration(org))
 				}
 			}
 
 			slog.Debug("ticket migration: converting tickets", "totalOrgs", m.totalOrgsToMigrateTickets, "totalTickets", m.totalTicketsToMigrate)
 			return m, tea.Sequence(cmds...)
-
-		case switchTicketMigStatusMsg(ticketMigDone):
-			m.status = ticketMigDone
 		}
 	}
 
@@ -158,20 +141,18 @@ func (m *ticketMigrationModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.allOrgsSelected {
 				for _, org := range m.data.Orgs {
 					org.TicketMigSelected = true
+					m.totalOrgsToMigrateTickets++
 				}
 
 			} else {
 				for _, org := range m.selectedOrgs {
 					org.TicketMigSelected = true
+					m.totalOrgsToMigrateTickets++
 				}
 			}
 
-			cmds = append(cmds, switchTicketMigStatus(ticketMigGettingZendeskTickets))
+			cmds = append(cmds, switchTicketMigStatus(ticketMigGettingPsaTickets))
 		}
-	}
-
-	if m.status == ticketMigGettingZendeskTickets && m.totalOrgsToMigrateTickets == m.totalOrgsChecked {
-		cmds = append(cmds, switchTicketMigStatus(ticketMigMigratingTickets))
 	}
 
 	if m.status == ticketMigMigratingTickets && m.totalOrgsToMigrateTickets == m.totalOrgsDone {
@@ -190,87 +171,51 @@ func (m *ticketMigrationModel) View() string {
 		s = runSpinner("Org migration is running - please wait")
 	case ticketMigPickingOrgs:
 		s = m.form.View()
-	case ticketMigGettingZendeskTickets:
-		s = runSpinner("Getting tickets")
+	case ticketMigGettingPsaTickets:
+		s = runSpinner(fmt.Sprintf("Getting existing PSA tickets...%d found", m.totalAlreadyMigrated))
+	case ticketMigMigratingTickets:
+		s = runSpinner(fmt.Sprintf("Migrating tickets...total done: %d/%d", m.totalTicketsMigrated, m.totalTicketsToMigrate))
 	case ticketMigDone:
-		s = fmt.Sprintf("User migration done - press %s to run again\n\n", textNormalAdaptive("SPACE"))
+		s = fmt.Sprintf("Ticket migration done - press %s to run again\n\n", textNormalAdaptive("SPACE"))
 	}
 
 	return s
 }
 
-func (m *ticketMigrationModel) getAlreadyMigrated() tea.Cmd {
+func (m *ticketMigrationModel) runMigration(org *orgMigrationDetails) tea.Cmd {
 	return func() tea.Msg {
-		s := fmt.Sprintf("id=%d AND value != nil", m.data.PsaInfo.ZendeskTicketFieldId.Id)
-		tickets, err := m.client.CwClient.GetTickets(ctx, &s)
+		zTickets, err := m.getZendeskTickets(org)
 		if err != nil {
-			return err // TODO: wrap something
-		}
-
-		for _, ticket := range tickets {
-			for _, field := range ticket.CustomFields {
-				if field.Id == m.data.PsaInfo.ZendeskTicketFieldId.Id {
-					// if value is an int, it's a zendesk ticket id
-					if _, ok := field.Value.(float64); ok {
-						val := strconv.Itoa(int(field.Value.(float64)))
-						m.data.TicketsInPsa[val] = ticket.Id
-						break
-					}
-				}
-			}
-		}
-
-		return nil
-	}
-}
-
-func (m *ticketMigrationModel) getTicketsToMigrate(org *orgMigrationDetails) tea.Cmd {
-	return func() tea.Msg {
-		slog.Info("getting tickets for org", "orgName", org.ZendeskOrg.Name)
-		q := zendesk.SearchQuery{
-			TicketsOrganizationId: org.ZendeskOrg.Id,
-			TicketCreatedAfter:    org.Tag.StartDate,
-			TicketCreatedBefore:   org.Tag.EndDate,
-		}
-
-		tickets, err := m.client.ZendeskClient.GetTicketsWithQuery(ctx, q, 100, testLimit)
-		if err != nil {
-			slog.Error("getting tickets for org", "orgName", org.ZendeskOrg.Name, "error", err)
-			m.totalOrgsChecked++
 			m.totalErrors++
+			slog.Error("runMigration: getting tickets for org", "orgName", org.ZendeskOrg.Name, "error", err)
+			m.data.writeToOutput(badRedOutput("ERROR", fmt.Errorf("getting zendesk tickets for org %s: %w", org.ZendeskOrg.Name, err)))
 			return nil
 		}
-		m.data.writeToOutput(infoOutput("INFO", fmt.Sprintf("got ticket total for %s: %d", org.ZendeskOrg.Name, len(tickets))))
 
-		for _, ticket := range tickets {
-			idString := fmt.Sprintf("%d", ticket.Id)
-			if _, ok := org.TicketsToMigrate[idString]; !ok {
-				tm := &ticketMigrationDetails{
-					ZendeskTicket: &ticket,
-				}
-				org.addTicketToOrgMap(idString, tm)
-				m.totalTicketsToMigrate++
-			}
-		}
-		m.totalOrgsChecked++
-		return nil
-	}
-}
-
-// TODO: caching
-func (m *ticketMigrationModel) migrateTickets(org *orgMigrationDetails) tea.Cmd {
-	return func() tea.Msg {
-		for _, ticket := range org.TicketsToMigrate {
-			if testLimit > 0 && m.totalTicketsMigrated == testLimit {
+		var ticketsToMigrate []*ticketMigrationDetails
+		for _, ticket := range zTickets {
+			if testLimit > 0 && m.totalTicketsMigrated >= testLimit {
+				slog.Info("testLimit reached")
+				m.totalOrgsDone++
 				break
 			}
 
-			if ticket.Migrated {
-				slog.Debug("ticket is already migrated", "zendeskId", ticket.ZendeskTicket.Id, "psaId", ticket.PsaTicket.Id)
-				m.totalTicketsMigrated++
-				continue
-			}
+			if psaId, ok := m.data.TicketsInPsa[strconv.Itoa(ticket.Id)]; !ok {
+				td := &ticketMigrationDetails{
+					ZendeskTicket: &ticket,
+					PsaTicket:     &psa.Ticket{},
+				}
 
+				slog.Debug("ticket needs to be migrated", "zendeskId", ticket.Id)
+				ticketsToMigrate = append(ticketsToMigrate, td)
+				m.totalTicketsToMigrate++
+
+			} else {
+				slog.Debug("ticket already migrated", "zendeskId", ticket.Id, "psaId", psaId)
+			}
+		}
+
+		for _, ticket := range ticketsToMigrate {
 			var err error
 			ticket.PsaTicket, err = m.createBaseTicket(org, ticket)
 			if err != nil {
@@ -280,7 +225,6 @@ func (m *ticketMigrationModel) migrateTickets(org *orgMigrationDetails) tea.Cmd 
 				continue
 			}
 
-			slog.Info("converted ticket", "ticketDetails", ticket.PsaTicket)
 			comments, err := m.client.ZendeskClient.GetAllTicketComments(ctx, int64(ticket.ZendeskTicket.Id))
 			if err != nil {
 				slog.Error("getting comments for zendesk ticket", "orgName", org.ZendeskOrg.Name, "ticketId", ticket.ZendeskTicket.Id, "error", err)
@@ -308,9 +252,56 @@ func (m *ticketMigrationModel) migrateTickets(org *orgMigrationDetails) tea.Cmd 
 			m.data.writeToOutput(goodGreenOutput("CREATED", fmt.Sprintf("migrated ticket: %d", ticket.ZendeskTicket.Id)))
 			m.totalTicketsMigrated++
 		}
+
 		m.totalOrgsDone++
 		return nil
 	}
+}
+
+func (m *ticketMigrationModel) getAlreadyMigrated() tea.Cmd {
+	return func() tea.Msg {
+		s := fmt.Sprintf("id=%d AND value != null", m.data.PsaInfo.ZendeskTicketFieldId.Id)
+		tickets, err := m.client.CwClient.GetTickets(ctx, &s)
+		if err != nil {
+			return fatalErrMsg{
+				Msg: "getting existing tickets from psa",
+				Err: err,
+			}
+		}
+
+		for _, ticket := range tickets {
+			for _, field := range ticket.CustomFields {
+				if field.Id == m.data.PsaInfo.ZendeskTicketFieldId.Id {
+					// if value is an int, it's a zendesk ticket id
+					if _, ok := field.Value.(float64); ok {
+						val := strconv.Itoa(int(field.Value.(float64)))
+						m.data.TicketsInPsa[val] = ticket.Id
+						m.totalAlreadyMigrated++
+						break
+					}
+				}
+			}
+		}
+
+		return switchTicketMigStatusMsg(ticketMigMigratingTickets)
+	}
+}
+
+func (m *ticketMigrationModel) getZendeskTickets(org *orgMigrationDetails) ([]zendesk.Ticket, error) {
+	slog.Info("getting tickets for org", "orgName", org.ZendeskOrg.Name)
+	q := zendesk.SearchQuery{
+		TicketsOrganizationId: org.ZendeskOrg.Id,
+		TicketCreatedAfter:    org.Tag.StartDate,
+		TicketCreatedBefore:   org.Tag.EndDate,
+	}
+
+	tickets, err := m.client.ZendeskClient.GetTicketsWithQuery(ctx, q, 100, testLimit)
+	if err != nil {
+		slog.Error("getting tickets for org", "orgName", org.ZendeskOrg.Name, "error", err)
+		return nil, fmt.Errorf("getting tickets via zendesk api: %w", err)
+	}
+	m.data.writeToOutput(infoOutput("INFO", fmt.Sprintf("got ticket total for %s: %d", org.ZendeskOrg.Name, len(tickets))))
+	return tickets, nil
 }
 
 func (m *ticketMigrationModel) createBaseTicket(org *orgMigrationDetails, ticket *ticketMigrationDetails) (*psa.Ticket, error) {
@@ -368,12 +359,19 @@ func (m *ticketMigrationModel) createTicketNotes(org *orgMigrationDetails, ticke
 		if agent, ok := m.client.Cfg.AgentMappings[authorString]; ok {
 			slog.Debug("author is in agent mappings", "authorId", authorString)
 			note.Member = &psa.Member{Id: agent.PsaId}
+		} else if contact, ok := org.UsersToMigrate[authorString]; ok {
+			slog.Debug("author is in org data", "authorId", authorString)
+			note.Contact = &psa.Contact{Id: contact.PsaContact.Id}
 		} else {
-			if contact, ok := org.UsersToMigrate[authorString]; ok {
-				slog.Debug("author is in org data", "authorId", authorString)
-				note.Contact = &psa.Contact{Id: contact.PsaContact.Id}
+			senderName := comment.Via.Source.From.Name
+			senderEmail := "no email"
+			if comment.Via.Source.From.Address != "" {
+				senderEmail = comment.Via.Source.From.Address
 			}
-		} // TODO: add stuff to comment to say who made the note
+
+			note.Text += fmt.Sprintf("Sent By: %s (%s)\n", senderName, senderEmail)
+
+		}
 
 		if comment.Public {
 			note.DetailDescriptionFlag = true
@@ -381,14 +379,14 @@ func (m *ticketMigrationModel) createTicketNotes(org *orgMigrationDetails, ticke
 			note.InternalAnalysisFlag = true
 		}
 
-		note.Text = comment.CreatedAt.Format("1/2/2006 3:04PM")
+		note.Text += fmt.Sprintf("%s\n", comment.CreatedAt.Format("1/2/2006 3:04PM"))
 
 		ccs := m.getCcString(org, &comment)
 		if ccs != "" {
-			note.Text += fmt.Sprintf("\nCCs: %s", ccs)
+			note.Text += fmt.Sprintf("CCs: %s\n", ccs)
 		}
 
-		note.Text += fmt.Sprintf("\n\n%s", comment.PlainBody)
+		note.Text += fmt.Sprintf("\n%s", comment.PlainBody)
 
 		if err := m.client.CwClient.PostTicketNote(ctx, ticket.PsaTicket.Id, note); err != nil {
 			return fmt.Errorf("creating note in ticket: %w", err)
@@ -421,10 +419,6 @@ func (m *ticketMigrationModel) getCcString(org *orgMigrationDetails, comment *ze
 		}
 	}
 	return strings.Join(ccs, ", ")
-}
-
-func (md *orgMigrationDetails) addTicketToOrgMap(idString string, ticket *ticketMigrationDetails) {
-	md.TicketsToMigrate[idString] = ticket
 }
 
 func (m *ticketMigrationModel) orgSelectionForm() *huh.Form {
