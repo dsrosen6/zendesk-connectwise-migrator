@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/migration"
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/psa"
@@ -31,28 +32,35 @@ var (
 	viewportDvdrHeight      int
 	verticalMarginHeight    int
 	verticalLeftForMainView int
-
-	menuTabs = []menuTab{tabMainPage, tabOrgs, tabUsers, tabTickets}
-)
-
-type menuTab string
-
-const (
-	tabMainPage menuTab = "M | Main Page"
-	tabOrgs     menuTab = "O | Organizations"
-	tabUsers    menuTab = "U | Users"
-	tabTickets  menuTab = "T | Tickets"
 )
 
 type RootModel struct {
-	mainDir      string
-	client       *migration.Client
-	data         *MigrationData
-	submodels    *submodels
-	currentModel tea.Model
-	viewport     viewport.Model
+	mainDir string
+	client  *migration.Client
+	data    *MigrationData
+	form    *huh.Form
+	statistics
+	allOrgsSelected bool
+	submodels       *submodels
+	currentModel    tea.Model
+	viewport        viewport.Model
 	viewState
 	scrollManagement
+	status status
+}
+
+type statistics struct {
+	orgsProcessed        int
+	orgsWithTickets      int
+	orgsNotInPsa         int
+	orgsMigrated         int
+	orgsCheckedForUsers  int
+	totalUsersToProcess  int
+	totalNewUsersCreated int
+	totalUsersProcessed  int
+	totalUsersSkipped    int
+	ticketsMigrated      int
+	totalErrors          int
 }
 
 type submodels struct {
@@ -63,9 +71,12 @@ type submodels struct {
 }
 
 type MigrationData struct {
-	Output       strings.Builder                 `json:"output"`
-	Orgs         map[string]*orgMigrationDetails `json:"orgs"`
-	TicketsInPsa map[string]int                  `json:"tickets_in_psa"`
+	Output         strings.Builder `json:"output"`
+	Tags           []tagDetails
+	Orgs           map[string]*orgMigrationDetails `json:"orgs"`
+	SelectedOrgs   []*orgMigrationDetails
+	UsersToMigrate map[string]*userMigrationDetails
+	TicketsInPsa   map[string]int `json:"tickets_in_psa"`
 
 	PsaInfo PsaInfo
 }
@@ -87,9 +98,8 @@ type timeConversionDetails struct {
 }
 
 type viewState struct {
-	activeTab menuTab
-	ready     bool
-	quitting  bool
+	ready    bool
+	quitting bool
 }
 
 type scrollManagement struct {
@@ -97,7 +107,26 @@ type scrollManagement struct {
 	scrollCountDown bool
 }
 
-type switchModelMsg tea.Model
+type switchStatusMsg status
+
+func switchStatus(s status) tea.Cmd {
+	return func() tea.Msg { return switchStatusMsg(s) }
+}
+
+type status string
+
+const (
+	awaitingStart      status = "awaitingStart"
+	gettingTags        status = "gettingTags"
+	gettingZendeskOrgs status = "gettingZendeskOrgs"
+	comparingOrgs      status = "comparingOrgs"
+	initOrgForm        status = "initOrgForm"
+	pickingOrgs        status = "pickingOrgs"
+	gettingUsers       status = "gettingUsers"
+	migratingUsers     status = "migratingUsers"
+	gettingPsaTickets  status = "gettingPsaTickets"
+	migratingTickets   status = "migratingTickets"
+)
 
 type saveDataMsg struct{}
 
@@ -134,7 +163,7 @@ func NewModel(cx context.Context, client *migration.Client, mainDir string) (*Ro
 	if data.TicketsInPsa == nil {
 		data.TicketsInPsa = make(map[string]int)
 	}
-	
+
 	data.PsaInfo = PsaInfo{
 		Board:        &psa.Board{Id: client.Cfg.Connectwise.DestinationBoardId},
 		StatusOpen:   &psa.Status{Id: client.Cfg.Connectwise.OpenStatusId},
@@ -144,32 +173,15 @@ func NewModel(cx context.Context, client *migration.Client, mainDir string) (*Ro
 		},
 	}
 
-	mm := newMainMenuModel(client, data)
-
-	sm := &submodels{
-		mainPage:        newMainMenuModel(client, data),
-		orgMigration:    newOrgMigrationModel(client, data),
-		userMigration:   newUserMigrationModel(client, data),
-		ticketMigration: newTicketMigrationModel(client, data),
-	}
-
 	return &RootModel{
-		mainDir:      mainDir,
-		client:       client,
-		submodels:    sm,
-		currentModel: mm,
-		data:         data,
-		viewState: viewState{
-			activeTab: tabMainPage,
-		},
+		mainDir: mainDir,
+		client:  client,
+		data:    data,
+		status:  awaitingStart,
 	}, nil
 }
 
 func (m *RootModel) Init() tea.Cmd {
-	if len(m.data.Orgs) > 0 {
-		m.submodels.orgMigration.(*orgMigrationModel).status = orgMigDone
-	}
-
 	return spnr.Tick
 }
 
@@ -194,66 +206,6 @@ func (m *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.copyToClipboard(m.data.Output.String()))
 		case "j":
 			cmds = append(cmds, m.writeDataToFile())
-		case "m":
-			if m.activeTab != tabMainPage {
-				m.activeTab = tabMainPage
-				cmds = append(cmds,
-					switchModel(m.submodels.mainPage))
-			}
-		case "o":
-			if m.activeTab != tabOrgs {
-				slog.Debug("chose org migration model", "totalOrgs", len(m.data.Orgs))
-				m.activeTab = tabOrgs
-				cmds = append(cmds,
-					switchModel(m.submodels.orgMigration))
-			}
-		case " ":
-			switch m.currentModel {
-			case m.submodels.orgMigration:
-				switch m.submodels.orgMigration.(*orgMigrationModel).status {
-				case awaitingStart, orgMigDone:
-					slog.Debug("org checker: user pressed space to start")
-					return m, switchOrgMigStatus(gettingTags)
-				}
-			case m.submodels.userMigration:
-				switch m.submodels.userMigration.(*userMigrationModel).status {
-				case userMigDone:
-					slog.Debug("user migration: user pressed space to run again")
-					return m, userMigInitForm()
-				}
-			case m.submodels.ticketMigration:
-				switch m.submodels.ticketMigration.(*ticketMigrationModel).status {
-				case ticketMigDone:
-					slog.Debug("ticket migration: user pressed space to run again")
-					return m, ticketMigInitForm()
-				}
-			}
-
-		case "u":
-			if m.activeTab != tabUsers {
-				slog.Debug("chose user migration model", "totalOrgs", len(m.data.Orgs))
-				m.activeTab = tabUsers
-				if m.submodels.orgMigration.(*orgMigrationModel).status == orgMigDone {
-					cmds = append(cmds, userMigInitForm())
-				}
-
-				cmds = append(cmds, switchModel(m.submodels.userMigration))
-
-				return m, tea.Sequence(cmds...)
-			}
-
-		case "t":
-			if m.activeTab != tabTickets {
-				slog.Debug("chose ticket migration model", "totalOrgs", len(m.data.Orgs))
-				m.activeTab = tabTickets
-				if m.submodels.orgMigration.(*orgMigrationModel).status == orgMigDone {
-					cmds = append(cmds, ticketMigInitForm())
-				}
-
-				cmds = append(cmds, switchModel(m.submodels.ticketMigration))
-
-				return m, tea.Sequence(cmds...)
-			}
 		}
 
 	case tea.MouseMsg:
@@ -263,9 +215,44 @@ func (m *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.scrollOverride = true
 		}
 
-	case switchModelMsg:
-		slog.Debug("received new model via switchModelMsg", "model", msg)
-		m.currentModel = msg
+	case switchStatusMsg:
+		m.status = status(msg)
+		switch status(msg) {
+		case gettingTags:
+			return m, m.getTagDetails()
+		case gettingZendeskOrgs:
+			m.statistics = statistics{}
+			return m, m.getOrgs()
+		case comparingOrgs:
+			var checkOrgCmds []tea.Cmd
+			for _, org := range m.data.Orgs {
+				checkOrgCmds = append(checkOrgCmds, m.checkOrg(org))
+			}
+
+			return m, tea.Sequence(checkOrgCmds...)
+		case initOrgForm:
+			m.form = m.orgSelectionForm()
+			cmds = append(cmds, m.form.Init(), switchStatus(pickingOrgs))
+			return m, tea.Sequence(cmds...)
+		case gettingUsers:
+			for _, org := range m.data.SelectedOrgs {
+				cmds = append(cmds, m.getUsersToMigrate(org))
+			}
+
+			return m, tea.Sequence(cmds...) // TODO: switch to batch when ready for speed
+		case migratingUsers:
+			for _, user := range m.data.UsersToMigrate {
+				cmds = append(cmds, m.migrateUsers(user))
+			}
+
+			return m, tea.Sequence(cmds...) // TODO: switch to batch when ready for speed
+		case gettingPsaTickets:
+			return m, tea.Sequence(m.getAlreadyMigrated(), saveDataCmd())
+		case migratingTickets:
+			for _, org := range m.data.SelectedOrgs {
+				cmds = append(cmds, m.runMigration(org))
+			}
+		}
 
 	case saveDataMsg:
 		return m, m.writeDataToFile()
@@ -274,17 +261,46 @@ func (m *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	spnr, cmd = spnr.Update(msg)
 	cmds = append(cmds, cmd)
 
-	m.submodels.mainPage, cmd = m.submodels.mainPage.Update(msg)
-	cmds = append(cmds, cmd)
+	switch m.status {
+	case comparingOrgs:
+		if len(m.data.Orgs) == m.orgsProcessed {
+			cmds = append(cmds, switchStatus(initOrgForm))
+		}
 
-	m.submodels.orgMigration, cmd = m.submodels.orgMigration.Update(msg)
-	cmds = append(cmds, cmd)
+	case pickingOrgs:
+		form, cmd := m.form.Update(msg)
+		cmds = append(cmds, cmd)
 
-	m.submodels.userMigration, cmd = m.submodels.userMigration.Update(msg)
-	cmds = append(cmds, cmd)
+		if f, ok := form.(*huh.Form); ok {
+			m.form = f
+		}
 
-	m.submodels.ticketMigration, cmd = m.submodels.ticketMigration.Update(msg)
-	cmds = append(cmds, cmd)
+		if m.form.State == huh.StateCompleted {
+			switch m.status {
+			case pickingOrgs:
+				if m.allOrgsSelected {
+					for _, org := range m.data.Orgs {
+						if !org.OrgMigrated {
+							continue
+						}
+						m.data.SelectedOrgs = append(m.data.SelectedOrgs, org)
+					}
+				}
+
+				cmds = append(cmds, switchStatus(gettingUsers))
+			}
+		}
+
+	case gettingUsers:
+		if len(m.data.SelectedOrgs) == m.orgsCheckedForUsers {
+			cmds = append(cmds, switchStatus(migratingUsers))
+		}
+
+	case migratingUsers:
+		if m.totalUsersToProcess == m.totalUsersProcessed {
+			cmds = append(cmds, switchStatus(gettingPsaTickets))
+		}
+	}
 
 	if m.ready {
 		m.viewport.SetContent(m.data.Output.String())
@@ -311,7 +327,7 @@ func (m *RootModel) View() string {
 		PaddingLeft(1).
 		Render(m.currentModel.View())
 
-	views := []string{menuBar(menuTabs, m.activeTab), mainView, viewportDivider(), m.viewport.View(), appFooter()}
+	views := []string{titleBar("Ticket Migration Utility"), mainView, viewportDivider(), m.viewport.View(), appFooter()}
 
 	return lipgloss.JoinVertical(lipgloss.Top, views...)
 }
@@ -349,12 +365,6 @@ func importJsonFile(path string) (*MigrationData, error) {
 	}
 
 	return data, nil
-}
-
-func switchModel(sm tea.Model) tea.Cmd {
-	return func() tea.Msg {
-		return switchModelMsg(sm)
-	}
 }
 
 func runSpinner(text string) string {
@@ -406,11 +416,10 @@ func (m *RootModel) copyToClipboard(s string) tea.Cmd {
 }
 
 func (m *RootModel) calculateDimensions(w, h int) tea.Cmd {
-	dummyMenuTabs := []menuTab{tabMainPage}
 	return func() tea.Msg {
 		windowWidth = w
 		windowHeight = h
-		mainHeaderHeight = lipgloss.Height(menuBar(dummyMenuTabs, dummyMenuTabs[0]))
+		mainHeaderHeight = lipgloss.Height(titleBar("Ticket Migration Utility"))
 		mainFooterHeight = lipgloss.Height(appFooter())
 		viewportDvdrHeight = lipgloss.Height(viewportDivider())
 		verticalMarginHeight = mainHeaderHeight + mainFooterHeight + viewportDvdrHeight

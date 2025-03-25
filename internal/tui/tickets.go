@@ -16,18 +16,6 @@ import (
 
 var testLimit = 5
 
-type ticketMigrationModel struct {
-	client          *migration.Client
-	data            *MigrationData
-	form            *huh.Form
-	selectedOrgs    []*orgMigrationDetails
-	allOrgsSelected bool
-	ticketMigTotals
-
-	status ticketMigStatus
-	done   bool
-}
-
 type ticketMigrationDetails struct {
 	ZendeskTicket *zendesk.Ticket `json:"zendesk_ticket"`
 	PsaTicket     *psa.Ticket     `json:"psa_ticket"`
@@ -70,49 +58,14 @@ const (
 	ticketMigDone              ticketMigStatus = "ticketMigDone"
 )
 
-type ticketMigInitFormMsg struct{}
-
-func ticketMigInitForm() tea.Cmd {
-	return func() tea.Msg {
-		return ticketMigInitFormMsg{}
-	}
-}
-
-func newTicketMigrationModel(mc *migration.Client, data *MigrationData) *ticketMigrationModel {
-	return &ticketMigrationModel{
-		client: mc,
-		data:   data,
-		status: ticketMigNoOrgs,
-	}
-}
-
-func (m *ticketMigrationModel) Init() tea.Cmd {
-	return nil
-}
-
 func (m *ticketMigrationModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
-	case ticketMigInitFormMsg:
-		if len(m.data.Orgs) == 0 {
-			slog.Warn("got ticketMigInitFormMsg, but no orgs")
-			m.data.writeToOutput(warnYellowOutput("WARNING", "ticket migration - no orgs"))
-			return m, switchTicketMigStatus(ticketMigNoOrgs)
-		} else {
-			slog.Debug("got ticketMigInitFormMsg", "totalOrgs", len(m.data.Orgs))
-			m.form = m.orgSelectionForm()
-			cmds = append(cmds, m.form.Init(), switchTicketMigStatus(ticketMigPickingOrgs))
-			return m, tea.Sequence(cmds...)
-		}
 
 	case switchTicketMigStatusMsg:
 		m.status = ticketMigStatus(msg)
 		switch msg {
-
-		case switchTicketMigStatusMsg(ticketMigPickingOrgs):
-			slog.Debug("got pickingOrgs status")
-			m.form = m.orgSelectionForm()
 
 		case switchTicketMigStatusMsg(ticketMigGettingPsaTickets):
 			return m, tea.Sequence(m.getAlreadyMigrated(), saveDataCmd())
@@ -162,27 +115,7 @@ func (m *ticketMigrationModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-func (m *ticketMigrationModel) View() string {
-	var s string
-	switch m.status {
-	case ticketMigNoOrgs:
-		s = "No orgs have been loaded! Please return to the main menu and select Organizations, then return."
-	case ticketMigWaitingForOrgs:
-		s = runSpinner("Org migration is running - please wait")
-	case ticketMigPickingOrgs:
-		s = m.form.View()
-	case ticketMigGettingPsaTickets:
-		s = runSpinner(fmt.Sprintf("Getting existing PSA tickets...%d found", m.totalAlreadyMigrated))
-	case ticketMigMigratingTickets:
-		s = runSpinner(fmt.Sprintf("Migrating tickets...total done: %d/%d", m.totalTicketsMigrated, m.totalTicketsToMigrate))
-	case ticketMigDone:
-		s = fmt.Sprintf("Ticket migration done - press %s to run again\n\n", textNormalAdaptive("SPACE"))
-	}
-
-	return s
-}
-
-func (m *ticketMigrationModel) runMigration(org *orgMigrationDetails) tea.Cmd {
+func (m *RootModel) runMigration(org *orgMigrationDetails) tea.Cmd {
 	return func() tea.Msg {
 		zTickets, err := m.getZendeskTickets(org)
 		if err != nil {
@@ -194,7 +127,7 @@ func (m *ticketMigrationModel) runMigration(org *orgMigrationDetails) tea.Cmd {
 
 		var ticketsToMigrate []*ticketMigrationDetails
 		for _, ticket := range zTickets {
-			if testLimit > 0 && m.totalTicketsMigrated >= testLimit {
+			if testLimit > 0 && m.ticketsMigrated >= testLimit {
 				slog.Info("testLimit reached")
 				m.totalOrgsDone++
 				break
@@ -258,7 +191,7 @@ func (m *ticketMigrationModel) runMigration(org *orgMigrationDetails) tea.Cmd {
 	}
 }
 
-func (m *ticketMigrationModel) getAlreadyMigrated() tea.Cmd {
+func (m *RootModel) getAlreadyMigrated() tea.Cmd {
 	return func() tea.Msg {
 		s := fmt.Sprintf("id=%d AND value != null", m.data.PsaInfo.ZendeskTicketFieldId.Id)
 		tickets, err := m.client.CwClient.GetTickets(ctx, &s)
@@ -287,7 +220,7 @@ func (m *ticketMigrationModel) getAlreadyMigrated() tea.Cmd {
 	}
 }
 
-func (m *ticketMigrationModel) getZendeskTickets(org *orgMigrationDetails) ([]zendesk.Ticket, error) {
+func (m *RootModel) getZendeskTickets(org *orgMigrationDetails) ([]zendesk.Ticket, error) {
 	slog.Info("getting tickets for org", "orgName", org.ZendeskOrg.Name)
 	q := zendesk.SearchQuery{
 		TicketsOrganizationId: org.ZendeskOrg.Id,
@@ -304,7 +237,7 @@ func (m *ticketMigrationModel) getZendeskTickets(org *orgMigrationDetails) ([]ze
 	return tickets, nil
 }
 
-func (m *ticketMigrationModel) createBaseTicket(org *orgMigrationDetails, ticket *ticketMigrationDetails) (*psa.Ticket, error) {
+func (m *RootModel) createBaseTicket(org *orgMigrationDetails, ticket *ticketMigrationDetails) (*psa.Ticket, error) {
 	if ticket.ZendeskTicket == nil {
 		return nil, errors.New("zendesk ticket does not exist")
 	}
@@ -350,7 +283,7 @@ func (m *ticketMigrationModel) createBaseTicket(org *orgMigrationDetails, ticket
 	return baseTicket, nil
 }
 
-func (m *ticketMigrationModel) createTicketNotes(org *orgMigrationDetails, ticket *ticketMigrationDetails, comments []zendesk.Comment) error {
+func (m *RootModel) createTicketNotes(org *orgMigrationDetails, ticket *ticketMigrationDetails, comments []zendesk.Comment) error {
 	for _, comment := range comments {
 		note := &psa.TicketNote{}
 
@@ -396,7 +329,7 @@ func (m *ticketMigrationModel) createTicketNotes(org *orgMigrationDetails, ticke
 	return nil
 }
 
-func (m *ticketMigrationModel) getCcString(org *orgMigrationDetails, comment *zendesk.Comment) string {
+func (m *RootModel) getCcString(org *orgMigrationDetails, comment *zendesk.Comment) string {
 	var ccs []string
 	for _, cc := range comment.Via.Source.To.EmailCcs {
 		// check if cc is a string
@@ -419,46 +352,4 @@ func (m *ticketMigrationModel) getCcString(org *orgMigrationDetails, comment *ze
 		}
 	}
 	return strings.Join(ccs, ", ")
-}
-
-func (m *ticketMigrationModel) orgSelectionForm() *huh.Form {
-	return huh.NewForm(
-
-		huh.NewGroup(
-			huh.NewSelect[bool]().
-				Title("Migrate all confirmed orgs?").
-				Description("If not, select the organizations you want to migrate on the next screen.").
-				Options(
-					huh.NewOption("All Orgs", true),
-					huh.NewOption("Select Orgs", false)).
-				Value(&m.allOrgsSelected),
-		),
-		huh.NewGroup(
-			huh.NewMultiSelect[*orgMigrationDetails]().
-				Title("Pick the orgs you'd like to migrate users for").
-				Description("Use Space to select, and Enter/Return to submit").
-				Options(m.orgOptions()...).
-				Value(&m.selectedOrgs),
-		).WithHideFunc(func() bool { return m.allOrgsSelected == true }),
-	).WithHeight(verticalLeftForMainView).WithShowHelp(false).WithTheme(migration.CustomHuhTheme())
-}
-
-func (m *ticketMigrationModel) orgOptions() []huh.Option[*orgMigrationDetails] {
-	var orgOptions []huh.Option[*orgMigrationDetails]
-	for _, org := range m.data.Orgs {
-		if org.OrgMigrated {
-			opt := huh.Option[*orgMigrationDetails]{
-				Key:   org.ZendeskOrg.Name,
-				Value: org,
-			}
-
-			orgOptions = append(orgOptions, opt)
-		}
-	}
-
-	sort.Slice(orgOptions, func(i, j int) bool {
-		return orgOptions[i].Key < orgOptions[j].Key
-	})
-
-	return orgOptions
 }
