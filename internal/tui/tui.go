@@ -63,8 +63,9 @@ type submodels struct {
 }
 
 type MigrationData struct {
-	Output strings.Builder                 `json:"output"`
-	Orgs   map[string]*orgMigrationDetails `json:"orgs"`
+	Output       strings.Builder                 `json:"output"`
+	Orgs         map[string]*orgMigrationDetails `json:"orgs"`
+	TicketsInPsa map[string]int                  `json:"tickets_in_psa"`
 
 	PsaInfo PsaInfo
 }
@@ -130,6 +131,10 @@ func NewModel(cx context.Context, client *migration.Client, mainDir string) (*Ro
 		slog.Debug("imported migration data from file")
 	}
 
+	if data.TicketsInPsa == nil {
+		data.TicketsInPsa = make(map[string]int)
+	}
+	
 	data.PsaInfo = PsaInfo{
 		Board:        &psa.Board{Id: client.Cfg.Connectwise.DestinationBoardId},
 		StatusOpen:   &psa.Status{Id: client.Cfg.Connectwise.OpenStatusId},

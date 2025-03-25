@@ -73,6 +73,7 @@ type Country struct {
 
 type CustomField struct {
 	Id               int    `json:"id,omitempty"`
+	Value            any    `json:"value"`
 	Caption          string `json:"caption,omitempty"`
 	Type             string `json:"type,omitempty"`
 	EntryMethod      string `json:"entryMethod,omitempty"`
