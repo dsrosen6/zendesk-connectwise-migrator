@@ -86,10 +86,11 @@ type MigrationData struct {
 }
 
 type PsaInfo struct {
-	Board                *psa.Board
-	StatusOpen           *psa.Status
-	StatusClosed         *psa.Status
-	ZendeskTicketFieldId *psa.CustomField
+	Board                  *psa.Board
+	StatusOpen             *psa.Status
+	StatusClosed           *psa.Status
+	ZendeskTicketIdField   *psa.CustomField
+	ZendeskClosedDateField *psa.CustomField
 }
 
 type timeConversionDetails struct {
@@ -173,13 +174,16 @@ func NewModel(cx context.Context, client *migration.Client, mainDir string) (*Ro
 		data.UsersInPsa = make(map[string]*userMigrationDetails)
 	}
 
+	if client.Cfg.TestLimit > 0 {
+		slog.Info("ticket test limit in config", "limit", client.Cfg.TestLimit)
+	}
+
 	data.PsaInfo = PsaInfo{
-		Board:        &psa.Board{Id: client.Cfg.Connectwise.DestinationBoardId},
-		StatusOpen:   &psa.Status{Id: client.Cfg.Connectwise.OpenStatusId},
-		StatusClosed: &psa.Status{Id: client.Cfg.Connectwise.ClosedStatusId},
-		ZendeskTicketFieldId: &psa.CustomField{
-			Id: client.Cfg.Connectwise.FieldIds.ZendeskTicketId,
-		},
+		Board:                  &psa.Board{Id: client.Cfg.Connectwise.DestinationBoardId},
+		StatusOpen:             &psa.Status{Id: client.Cfg.Connectwise.OpenStatusId},
+		StatusClosed:           &psa.Status{Id: client.Cfg.Connectwise.ClosedStatusId},
+		ZendeskTicketIdField:   &psa.CustomField{Id: client.Cfg.Connectwise.FieldIds.ZendeskTicketId},
+		ZendeskClosedDateField: &psa.CustomField{Id: client.Cfg.Connectwise.FieldIds.ZendeskClosedDate},
 	}
 
 	return &RootModel{

@@ -28,6 +28,8 @@ type Config struct {
 	Zendesk       ZendeskConfig           `mapstructure:"zendesk" json:"zendesk"`
 	Connectwise   ConnectwiseConfig       `mapstructure:"connectwise_psa" json:"connectwise_psa"`
 	AgentMappings map[string]AgentMapping `mapstructure:"agent_mappings" json:"agent_mappings"`
+
+	TestLimit int `mapstructure:"ticket_migration_limit" json:"ticket_migration_limit"`
 }
 
 type ZendeskConfig struct {
@@ -61,7 +63,8 @@ type ZendeskFieldIds struct {
 }
 
 type ConnectwiseFieldIds struct {
-	ZendeskTicketId int `mapstructure:"zendesk_ticket_id" json:"zendesk_ticket_id"`
+	ZendeskTicketId   int `mapstructure:"zendesk_ticket_id" json:"zendesk_ticket_id"`
+	ZendeskClosedDate int `mapstructure:"zendesk_closed_date" json:"zendesk_closed_date"`
 }
 
 type AgentMapping struct {
@@ -128,10 +131,18 @@ func (cfg *Config) validatePreClient() error {
 	}
 
 	if cfg.Connectwise.FieldIds.ZendeskTicketId == 0 {
-		slog.Warn("no ConnectWise PSA custom field ID set")
+		slog.Warn("no ConnectWise PSA custom field ID set for Zendesk Ticket Number")
 		valid = false
 
-		fmt.Println("\nNo ConnectWise PSA custom field ID set - please enter the ID in the config file")
+		fmt.Println("\nNo ConnectWise PSA custom field ID set for Zendesk Ticket Number - please enter the ID in the config file")
+	}
+
+	if cfg.Connectwise.FieldIds.ZendeskClosedDate == 0 {
+		slog.Warn("no ConnectWise PSA custom field ID set for Zendesk Closed Date")
+		valid = false
+
+		fmt.Println("\nNo ConnectWise PSA custom field ID set for Zendesk Closed Date - please enter the ID in the config file")
+
 	}
 
 	if !valid {
@@ -593,6 +604,7 @@ func setCfgDefaults() {
 	slog.Debug("setting config defaults")
 	viper.SetDefault("zendesk", ZendeskConfig{})
 	viper.SetDefault("connectwise_psa", ConnectwiseConfig{})
+	viper.SetDefault("ticket_migration_limit", 0)
 }
 
 func ConvertStringToTime(date string) (time.Time, error) {

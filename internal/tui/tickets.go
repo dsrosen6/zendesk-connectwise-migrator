@@ -11,8 +11,6 @@ import (
 	"strings"
 )
 
-var testLimit = 5
-
 type ticketMigrationDetails struct {
 	ZendeskTicket *zendesk.Ticket `json:"zendesk_ticket"`
 	PsaTicket     *psa.Ticket     `json:"psa_ticket"`
@@ -53,7 +51,7 @@ func (m *RootModel) runTicketMigration(org *orgMigrationDetails) tea.Cmd {
 		}
 
 		for _, ticket := range ticketsToMigrate {
-			if testLimit > 0 && m.ticketsMigrated >= testLimit {
+			if m.client.Cfg.TestLimit > 0 && m.ticketsMigrated >= m.client.Cfg.TestLimit {
 				slog.Info("testLimit reached")
 				m.ticketOrgsMigrated++
 				return nil
@@ -85,7 +83,7 @@ func (m *RootModel) runTicketMigration(org *orgMigrationDetails) tea.Cmd {
 
 			if ticket.ZendeskTicket.Status == "closed" || ticket.ZendeskTicket.Status == "solved" {
 				slog.Debug("closing ticket", "closedOn", ticket.ZendeskTicket.UpdatedAt, "closedBy", ticket.PsaTicket.Owner.Identifier)
-				if err := m.client.CwClient.CloseTicket(ctx, ticket.PsaTicket, m.data.PsaInfo.StatusClosed.Id, ticket.ZendeskTicket.UpdatedAt, ticket.PsaTicket.Owner); err != nil {
+				if err := m.client.CwClient.UpdateTicketStatus(ctx, ticket.PsaTicket, m.data.PsaInfo.StatusClosed.Id); err != nil {
 					slog.Error("error closing ticket", "orgName", org.ZendeskOrg.Name, "zendeskTicketId", ticket.ZendeskTicket.Id, "psaTicketId", ticket.PsaTicket.Id, "error", err)
 					m.data.writeToOutput(badRedOutput("ERROR", fmt.Errorf("closing %s psa ticket %d: %w", org.ZendeskOrg.Name, ticket.PsaTicket.Id, err)))
 					m.totalErrors++
@@ -94,6 +92,7 @@ func (m *RootModel) runTicketMigration(org *orgMigrationDetails) tea.Cmd {
 			}
 
 			m.data.writeToOutput(goodGreenOutput("CREATED", fmt.Sprintf("migrated ticket: %d", ticket.ZendeskTicket.Id)))
+			m.data.TicketsInPsa[strconv.Itoa(ticket.ZendeskTicket.Id)] = ticket.PsaTicket.Id
 			m.ticketsMigrated++
 		}
 
@@ -104,7 +103,7 @@ func (m *RootModel) runTicketMigration(org *orgMigrationDetails) tea.Cmd {
 
 func (m *RootModel) getAlreadyMigrated() tea.Cmd {
 	return func() tea.Msg {
-		s := fmt.Sprintf("id=%d AND value != null", m.data.PsaInfo.ZendeskTicketFieldId.Id)
+		s := fmt.Sprintf("id=%d AND value != null", m.data.PsaInfo.ZendeskTicketIdField.Id)
 		tickets, err := m.client.CwClient.GetTickets(ctx, &s)
 		if err != nil {
 			return fatalErrMsg{
@@ -115,7 +114,7 @@ func (m *RootModel) getAlreadyMigrated() tea.Cmd {
 
 		for _, ticket := range tickets {
 			for _, field := range ticket.CustomFields {
-				if field.Id == m.data.PsaInfo.ZendeskTicketFieldId.Id {
+				if field.Id == m.data.PsaInfo.ZendeskTicketIdField.Id {
 					// if value is an int, it's a zendesk ticket id
 					if _, ok := field.Value.(float64); ok {
 						val := strconv.Itoa(int(field.Value.(float64)))
@@ -139,7 +138,7 @@ func (m *RootModel) getZendeskTickets(org *orgMigrationDetails) ([]zendesk.Ticke
 		TicketCreatedBefore:   org.Tag.EndDate,
 	}
 
-	tickets, err := m.client.ZendeskClient.GetTicketsWithQuery(ctx, q, 100, testLimit)
+	tickets, err := m.client.ZendeskClient.GetTicketsWithQuery(ctx, q, 100, m.client.Cfg.TestLimit)
 	if err != nil {
 		slog.Error("getting tickets for org", "orgName", org.ZendeskOrg.Name, "error", err)
 		return nil, fmt.Errorf("getting tickets via zendesk api: %w", err)
@@ -153,15 +152,23 @@ func (m *RootModel) createBaseTicket(org *orgMigrationDetails, ticket *ticketMig
 		return nil, errors.New("zendesk ticket does not exist")
 	}
 
-	customField := *m.data.PsaInfo.ZendeskTicketFieldId
-	customField.Value = ticket.ZendeskTicket.Id
+	var customFields []psa.CustomField
+	idField := *m.data.PsaInfo.ZendeskTicketIdField
+	idField.Value = ticket.ZendeskTicket.Id
+	customFields = append(customFields, idField)
+	if ticket.ZendeskTicket.Status == "closed" || ticket.ZendeskTicket.Status == "solved" {
+		slog.Debug("ticket has closed date", "zendeskTicketId", ticket.ZendeskTicket.Id, "closedOn", ticket.ZendeskTicket.UpdatedAt)
+		dateField := *m.data.PsaInfo.ZendeskClosedDateField
+		dateField.Value = ticket.ZendeskTicket.UpdatedAt
+		customFields = append(customFields, dateField)
+	}
 
 	baseTicket := &psa.Ticket{
 		Board:        m.data.PsaInfo.Board,
 		Status:       m.data.PsaInfo.StatusOpen,
 		Summary:      ticket.ZendeskTicket.Subject,
 		Company:      &psa.Company{Id: org.PsaOrg.Id},
-		CustomFields: []psa.CustomField{customField},
+		CustomFields: customFields,
 	}
 
 	baseTicket.Summary = ticket.ZendeskTicket.Subject
