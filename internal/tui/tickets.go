@@ -33,6 +33,8 @@ func (m *RootModel) runTicketMigration(org *orgMigrationDetails) tea.Cmd {
 			return nil
 		}
 
+		m.ticketsToMigrate += len(zTickets)
+
 		var ticketsToMigrate []*ticketMigrationDetails
 		for _, ticket := range zTickets {
 			if psaId, ok := m.data.TicketsInPsa[strconv.Itoa(ticket.Id)]; !ok {
@@ -43,7 +45,6 @@ func (m *RootModel) runTicketMigration(org *orgMigrationDetails) tea.Cmd {
 
 				slog.Debug("ticket needs to be migrated", "zendeskId", ticket.Id)
 				ticketsToMigrate = append(ticketsToMigrate, td)
-				m.ticketsToMigrate++
 
 			} else {
 				slog.Debug("ticket already migrated", "zendeskId", ticket.Id, "psaId", psaId)

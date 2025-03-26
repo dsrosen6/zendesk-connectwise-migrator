@@ -347,12 +347,16 @@ func (m *RootModel) View() string {
 		s += runSpinner(string(m.status))
 	}
 
-	//if m.status != awaitingStart && m.status != pickingOrgs {
-	//	s += fmt.Sprintf("\n\nOrgs With Tickets: %d\n"+
-	//		"Total Users Processed: %d/%d\n"+
-	//		"Tickets Migrated: %d/%d\n",
-	//		m.orgsWithTickets, m.totalUsersChecked, m.totalUsersToCheck, m.ticketsMigrated, m.ticketsToMigrate)
-	//}
+	if m.status != awaitingStart && m.status != pickingOrgs {
+		s += fmt.Sprintf("\n\nUsers (Processed/Total): %d/%d\n"+
+			"Tickets (Migrated/Total): %d/%d\n"+
+			"Orgs Complete: %d\n"+
+			"Errors: %d\n",
+			m.usersMigrated+m.usersSkipped, m.usersToCheck,
+			m.ticketsMigrated, m.ticketsToMigrate,
+			m.ticketOrgsMigrated,
+			m.totalErrors)
+	}
 
 	mainView := lipgloss.NewStyle().
 		Width(windowWidth).
