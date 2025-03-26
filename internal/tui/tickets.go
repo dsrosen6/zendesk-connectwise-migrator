@@ -4,12 +4,9 @@ import (
 	"errors"
 	"fmt"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/huh"
-	"github.com/dsrosen/zendesk-connectwise-migrator/internal/migration"
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/psa"
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/zendesk"
 	"log/slog"
-	"sort"
 	"strconv"
 	"strings"
 )
@@ -23,99 +20,12 @@ type ticketMigrationDetails struct {
 	Migrated bool `json:"migrated"`
 }
 
-type ticketMigTotals struct {
-	totalOrgsToMigrateTickets int
-	totalOrgsChecked          int
-	totalTicketsToMigrate     int
-	totalAlreadyMigrated      int
-	totalTicketsMigrated      int
-	totalCommentsCreated      int
-	totalOrgsDone             int
-	totalErrors               int
-}
-
-type ticketMigStatus string
-
-type switchTicketMigStatusMsg string
-
-func switchTicketMigStatus(s ticketMigStatus) tea.Cmd {
-	return func() tea.Msg {
-		return switchTicketMigStatusMsg(s)
-	}
-}
-
 type fatalErrMsg struct {
 	Msg string
 	Err error
 }
 
-const (
-	ticketMigNoOrgs            ticketMigStatus = "noOrgs"
-	ticketMigWaitingForOrgs    ticketMigStatus = "waitingForOrgs"
-	ticketMigPickingOrgs       ticketMigStatus = "pickingOrgs"
-	ticketMigGettingPsaTickets ticketMigStatus = "gettingPsaTickets"
-	ticketMigMigratingTickets  ticketMigStatus = "migratingTickets"
-	ticketMigDone              ticketMigStatus = "ticketMigDone"
-)
-
-func (m *ticketMigrationModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var cmds []tea.Cmd
-
-	switch msg := msg.(type) {
-
-	case switchTicketMigStatusMsg:
-		m.status = ticketMigStatus(msg)
-		switch msg {
-
-		case switchTicketMigStatusMsg(ticketMigGettingPsaTickets):
-			return m, tea.Sequence(m.getAlreadyMigrated(), saveDataCmd())
-
-		case switchTicketMigStatusMsg(ticketMigMigratingTickets):
-			for _, org := range m.data.Orgs {
-				if org.OrgMigrated && org.TicketMigSelected {
-					cmds = append(cmds, m.runMigration(org))
-				}
-			}
-
-			slog.Debug("ticket migration: converting tickets", "totalOrgs", m.totalOrgsToMigrateTickets, "totalTickets", m.totalTicketsToMigrate)
-			return m, tea.Sequence(cmds...)
-		}
-	}
-
-	if m.status == ticketMigPickingOrgs {
-		form, cmd := m.form.Update(msg)
-		cmds = append(cmds, cmd)
-		if f, ok := form.(*huh.Form); ok {
-			m.form = f
-		}
-
-		if m.form.State == huh.StateCompleted {
-
-			if m.allOrgsSelected {
-				for _, org := range m.data.Orgs {
-					org.TicketMigSelected = true
-					m.totalOrgsToMigrateTickets++
-				}
-
-			} else {
-				for _, org := range m.selectedOrgs {
-					org.TicketMigSelected = true
-					m.totalOrgsToMigrateTickets++
-				}
-			}
-
-			cmds = append(cmds, switchTicketMigStatus(ticketMigGettingPsaTickets))
-		}
-	}
-
-	if m.status == ticketMigMigratingTickets && m.totalOrgsToMigrateTickets == m.totalOrgsDone {
-		cmds = append(cmds, switchTicketMigStatus(ticketMigDone), saveDataCmd())
-	}
-
-	return m, tea.Batch(cmds...)
-}
-
-func (m *RootModel) runMigration(org *orgMigrationDetails) tea.Cmd {
+func (m *RootModel) runTicketMigration(org *orgMigrationDetails) tea.Cmd {
 	return func() tea.Msg {
 		zTickets, err := m.getZendeskTickets(org)
 		if err != nil {
@@ -127,12 +37,6 @@ func (m *RootModel) runMigration(org *orgMigrationDetails) tea.Cmd {
 
 		var ticketsToMigrate []*ticketMigrationDetails
 		for _, ticket := range zTickets {
-			if testLimit > 0 && m.ticketsMigrated >= testLimit {
-				slog.Info("testLimit reached")
-				m.totalOrgsDone++
-				break
-			}
-
 			if psaId, ok := m.data.TicketsInPsa[strconv.Itoa(ticket.Id)]; !ok {
 				td := &ticketMigrationDetails{
 					ZendeskTicket: &ticket,
@@ -141,7 +45,7 @@ func (m *RootModel) runMigration(org *orgMigrationDetails) tea.Cmd {
 
 				slog.Debug("ticket needs to be migrated", "zendeskId", ticket.Id)
 				ticketsToMigrate = append(ticketsToMigrate, td)
-				m.totalTicketsToMigrate++
+				m.ticketsToMigrate++
 
 			} else {
 				slog.Debug("ticket already migrated", "zendeskId", ticket.Id, "psaId", psaId)
@@ -149,6 +53,12 @@ func (m *RootModel) runMigration(org *orgMigrationDetails) tea.Cmd {
 		}
 
 		for _, ticket := range ticketsToMigrate {
+			if testLimit > 0 && m.ticketsMigrated >= testLimit {
+				slog.Info("testLimit reached")
+				m.ticketOrgsMigrated++
+				break
+			}
+			
 			var err error
 			ticket.PsaTicket, err = m.createBaseTicket(org, ticket)
 			if err != nil {
@@ -183,10 +93,10 @@ func (m *RootModel) runMigration(org *orgMigrationDetails) tea.Cmd {
 			}
 
 			m.data.writeToOutput(goodGreenOutput("CREATED", fmt.Sprintf("migrated ticket: %d", ticket.ZendeskTicket.Id)))
-			m.totalTicketsMigrated++
+			m.ticketsMigrated++
 		}
 
-		m.totalOrgsDone++
+		m.ticketOrgsMigrated++
 		return nil
 	}
 }
@@ -209,14 +119,14 @@ func (m *RootModel) getAlreadyMigrated() tea.Cmd {
 					if _, ok := field.Value.(float64); ok {
 						val := strconv.Itoa(int(field.Value.(float64)))
 						m.data.TicketsInPsa[val] = ticket.Id
-						m.totalAlreadyMigrated++
+						m.ticketsMigrated++
 						break
 					}
 				}
 			}
 		}
 
-		return switchTicketMigStatusMsg(ticketMigMigratingTickets)
+		return switchStatusMsg(migratingTickets)
 	}
 }
 
@@ -233,7 +143,7 @@ func (m *RootModel) getZendeskTickets(org *orgMigrationDetails) ([]zendesk.Ticke
 		slog.Error("getting tickets for org", "orgName", org.ZendeskOrg.Name, "error", err)
 		return nil, fmt.Errorf("getting tickets via zendesk api: %w", err)
 	}
-	m.data.writeToOutput(infoOutput("INFO", fmt.Sprintf("got ticket total for %s: %d", org.ZendeskOrg.Name, len(tickets))))
+
 	return tickets, nil
 }
 

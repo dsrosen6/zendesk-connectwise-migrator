@@ -4,12 +4,9 @@ import (
 	"errors"
 	"fmt"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/huh"
-	"github.com/dsrosen/zendesk-connectwise-migrator/internal/migration"
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/psa"
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/zendesk"
 	"log/slog"
-	"sort"
 	"strings"
 )
 
@@ -20,48 +17,6 @@ type userMigrationDetails struct {
 	UserMigrated bool `json:"migrated"`
 
 	HasTickets bool `json:"has_tickets"`
-}
-
-func (m *RootModel) orgSelectionForm() *huh.Form {
-	return huh.NewForm(
-
-		huh.NewGroup(
-			huh.NewSelect[bool]().
-				Title("Migrate all confirmed orgs?").
-				Description("If not, select the organizations you want to migrate on the next screen.").
-				Options(
-					huh.NewOption("All Orgs", true),
-					huh.NewOption("Select Orgs", false)).
-				Value(&m.allOrgsSelected),
-		),
-		huh.NewGroup(
-			huh.NewMultiSelect[*orgMigrationDetails]().
-				Title("Pick the orgs you'd like to migrate users for").
-				Description("Use Space to select, and Enter/Return to submit").
-				Options(m.orgOptions()...).
-				Value(&m.data.SelectedOrgs),
-		).WithHideFunc(func() bool { return m.allOrgsSelected == true }),
-	).WithHeight(verticalLeftForMainView).WithShowHelp(false).WithTheme(migration.CustomHuhTheme())
-}
-
-func (m *RootModel) orgOptions() []huh.Option[*orgMigrationDetails] {
-	var orgOptions []huh.Option[*orgMigrationDetails]
-	for _, org := range m.data.Orgs {
-		if org.OrgMigrated {
-			opt := huh.Option[*orgMigrationDetails]{
-				Key:   org.ZendeskOrg.Name,
-				Value: org,
-			}
-
-			orgOptions = append(orgOptions, opt)
-		}
-	}
-
-	sort.Slice(orgOptions, func(i, j int) bool {
-		return orgOptions[i].Key < orgOptions[j].Key
-	})
-
-	return orgOptions
 }
 
 func (m *RootModel) getUsersToMigrate(org *orgMigrationDetails) tea.Cmd {
@@ -78,7 +33,7 @@ func (m *RootModel) getUsersToMigrate(org *orgMigrationDetails) tea.Cmd {
 		for _, user := range users {
 			slog.Debug("got user", "orgName", org.ZendeskOrg.Name, "userName", user.Name)
 			idString := fmt.Sprintf("%d", user.Id)
-			if _, ok := org.UsersToMigrate[idString]; !ok {
+			if _, ok := m.data.UsersInPsa[idString]; !ok {
 				slog.Debug("adding user to org", "orgName", org.ZendeskOrg.Name, "userName", user.Name)
 				m.addUserToUsersMap(idString, &userMigrationDetails{ZendeskUser: &user, PsaCompany: org.PsaOrg})
 			} else {
@@ -162,6 +117,7 @@ func (m *RootModel) migrateUsers(user *userMigrationDetails) tea.Cmd {
 		}
 		return nil
 	}
+
 }
 
 func (m *RootModel) matchZdUserToCwContact(user *zendesk.User) (*psa.Contact, error) {

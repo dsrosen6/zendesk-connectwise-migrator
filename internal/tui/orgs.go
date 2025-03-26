@@ -4,9 +4,12 @@ import (
 	"errors"
 	"fmt"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/huh"
+	"github.com/dsrosen/zendesk-connectwise-migrator/internal/migration"
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/psa"
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/zendesk"
 	"log/slog"
+	"sort"
 	"time"
 )
 
@@ -18,8 +21,7 @@ type orgMigrationDetails struct {
 	HasTickets  bool        `json:"has_tickets"`
 	OrgMigrated bool        `json:"org_migrated"`
 
-	MigrationSelected bool                             `json:"migration_selected"`
-	UsersToMigrate    map[string]*userMigrationDetails `json:"users_to_migrate"`
+	MigrationSelected bool `json:"migration_selected"`
 	UserMigDone       bool
 }
 
@@ -32,6 +34,7 @@ type tagDetails struct {
 func (m *RootModel) getTagDetails() tea.Cmd {
 	return func() tea.Msg {
 		for _, tag := range m.client.Cfg.Zendesk.TagsToMigrate {
+			slog.Debug("getting tag details", "tag", tag.Name)
 			tm := &timeConversionDetails{
 				startString:   tag.StartDate,
 				endString:     tag.EndDate,
@@ -52,7 +55,8 @@ func (m *RootModel) getTagDetails() tea.Cmd {
 
 			m.data.Tags = append(m.data.Tags, td)
 		}
-		return switchStatus(gettingZendeskOrgs)
+
+		return switchStatusMsg(gettingZendeskOrgs)
 	}
 }
 
@@ -77,9 +81,8 @@ func (m *RootModel) getOrgs() tea.Cmd {
 					slog.Debug("adding org to migration data", "zendeskOrgId", idString, "orgName", org.Name)
 
 					md := &orgMigrationDetails{
-						ZendeskOrg:     &org,
-						Tag:            &tag,
-						UsersToMigrate: make(map[string]*userMigrationDetails),
+						ZendeskOrg: &org,
+						Tag:        &tag,
 					}
 
 					m.data.addOrgToOrgsMap(idString, md)
@@ -89,7 +92,7 @@ func (m *RootModel) getOrgs() tea.Cmd {
 			}
 		}
 
-		return switchStatus(comparingOrgs)
+		return switchStatusMsg(comparingOrgs)
 	}
 }
 
@@ -200,4 +203,46 @@ func (m *RootModel) matchZdOrgToCwCompany(org *zendesk.Organization) (*psa.Compa
 	}
 
 	return comp, nil
+}
+
+func (m *RootModel) orgSelectionForm() *huh.Form {
+	return huh.NewForm(
+
+		huh.NewGroup(
+			huh.NewSelect[bool]().
+				Title("Migrate all confirmed orgs?").
+				Description("If not, select the organizations you want to migrate on the next screen.").
+				Options(
+					huh.NewOption("All Orgs", true),
+					huh.NewOption("Select Orgs", false)).
+				Value(&m.allOrgsSelected),
+		),
+		huh.NewGroup(
+			huh.NewMultiSelect[*orgMigrationDetails]().
+				Title("Pick the orgs you'd like to migrate users for").
+				Description("Use Space to select, and Enter/Return to submit").
+				Options(m.orgOptions()...).
+				Value(&m.data.SelectedOrgs),
+		).WithHideFunc(func() bool { return m.allOrgsSelected == true }),
+	).WithHeight(verticalLeftForMainView).WithShowHelp(false).WithTheme(migration.CustomHuhTheme())
+}
+
+func (m *RootModel) orgOptions() []huh.Option[*orgMigrationDetails] {
+	var orgOptions []huh.Option[*orgMigrationDetails]
+	for _, org := range m.data.Orgs {
+		if org.OrgMigrated {
+			opt := huh.Option[*orgMigrationDetails]{
+				Key:   org.ZendeskOrg.Name,
+				Value: org,
+			}
+
+			orgOptions = append(orgOptions, opt)
+		}
+	}
+
+	sort.Slice(orgOptions, func(i, j int) bool {
+		return orgOptions[i].Key < orgOptions[j].Key
+	})
+
+	return orgOptions
 }

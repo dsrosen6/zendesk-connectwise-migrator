@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/migration"
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/psa"
+	"github.com/dsrosen/zendesk-connectwise-migrator/internal/zendesk"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -42,7 +43,6 @@ type RootModel struct {
 	statistics
 	allOrgsSelected bool
 	submodels       *submodels
-	currentModel    tea.Model
 	viewport        viewport.Model
 	viewState
 	scrollManagement
@@ -59,7 +59,10 @@ type statistics struct {
 	totalNewUsersCreated int
 	totalUsersProcessed  int
 	totalUsersSkipped    int
+	ticketsToMigrate     int
 	ticketsMigrated      int
+	ticketOrgsToMigrate  int
+	ticketOrgsMigrated   int
 	totalErrors          int
 }
 
@@ -74,11 +77,14 @@ type MigrationData struct {
 	Output         strings.Builder `json:"output"`
 	Tags           []tagDetails
 	Orgs           map[string]*orgMigrationDetails `json:"orgs"`
+	ZendeskTickets []zendesk.Ticket
 	SelectedOrgs   []*orgMigrationDetails
-	UsersToMigrate map[string]*userMigrationDetails
-	TicketsInPsa   map[string]int `json:"tickets_in_psa"`
 
-	PsaInfo PsaInfo
+	UsersInPsa   map[string]int `json:"users_in_psa"`
+	TicketsInPsa map[string]int `json:"tickets_in_psa"`
+
+	UsersToMigrate map[string]*userMigrationDetails
+	PsaInfo        PsaInfo
 }
 
 type PsaInfo struct {
@@ -116,16 +122,17 @@ func switchStatus(s status) tea.Cmd {
 type status string
 
 const (
-	awaitingStart      status = "awaitingStart"
-	gettingTags        status = "gettingTags"
-	gettingZendeskOrgs status = "gettingZendeskOrgs"
-	comparingOrgs      status = "comparingOrgs"
-	initOrgForm        status = "initOrgForm"
-	pickingOrgs        status = "pickingOrgs"
-	gettingUsers       status = "gettingUsers"
-	migratingUsers     status = "migratingUsers"
-	gettingPsaTickets  status = "gettingPsaTickets"
-	migratingTickets   status = "migratingTickets"
+	awaitingStart      status = "Awaiting Start"
+	gettingTags        status = "Getting Tags from Config"
+	gettingZendeskOrgs status = "Getting Zendesk Organizations"
+	comparingOrgs      status = "Checking for Organization Matches"
+	initOrgForm        status = "Initializing Form"
+	pickingOrgs        status = "Selecting Organizations"
+	gettingUsers       status = "Getting Users"
+	migratingUsers     status = "Migrating Users"
+	gettingPsaTickets  status = "Getting PSA Tickets"
+	migratingTickets   status = "Migrating Tickets"
+	done               status = "Done"
 )
 
 type saveDataMsg struct{}
@@ -162,6 +169,14 @@ func NewModel(cx context.Context, client *migration.Client, mainDir string) (*Ro
 
 	if data.TicketsInPsa == nil {
 		data.TicketsInPsa = make(map[string]int)
+	}
+
+	if data.UsersInPsa == nil {
+		data.UsersInPsa = make(map[string]int)
+	}
+
+	if data.UsersToMigrate == nil {
+		data.UsersToMigrate = make(map[string]*userMigrationDetails)
 	}
 
 	data.PsaInfo = PsaInfo{
@@ -204,8 +219,10 @@ func (m *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, tea.Quit)
 		case "c":
 			cmds = append(cmds, m.copyToClipboard(m.data.Output.String()))
-		case "j":
-			cmds = append(cmds, m.writeDataToFile())
+		case " ":
+			if m.status == awaitingStart {
+				return m, switchStatus(gettingTags)
+			}
 		}
 
 	case tea.MouseMsg:
@@ -219,8 +236,10 @@ func (m *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = status(msg)
 		switch status(msg) {
 		case gettingTags:
+			slog.Debug("getting tags from config")
 			return m, m.getTagDetails()
 		case gettingZendeskOrgs:
+			slog.Debug("getting zendesk orgs")
 			m.statistics = statistics{}
 			return m, m.getOrgs()
 		case comparingOrgs:
@@ -250,8 +269,10 @@ func (m *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Sequence(m.getAlreadyMigrated(), saveDataCmd())
 		case migratingTickets:
 			for _, org := range m.data.SelectedOrgs {
-				cmds = append(cmds, m.runMigration(org))
+				cmds = append(cmds, m.runTicketMigration(org))
 			}
+
+			return m, tea.Sequence(cmds...) // TODO: switch to batch when ready for speed
 		}
 
 	case saveDataMsg:
@@ -264,7 +285,7 @@ func (m *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch m.status {
 	case comparingOrgs:
 		if len(m.data.Orgs) == m.orgsProcessed {
-			cmds = append(cmds, switchStatus(initOrgForm))
+			cmds = append(cmds, saveDataCmd(), switchStatus(initOrgForm))
 		}
 
 	case pickingOrgs:
@@ -293,12 +314,17 @@ func (m *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case gettingUsers:
 		if len(m.data.SelectedOrgs) == m.orgsCheckedForUsers {
-			cmds = append(cmds, switchStatus(migratingUsers))
+			cmds = append(cmds, saveDataCmd(), switchStatus(migratingUsers))
 		}
 
 	case migratingUsers:
 		if m.totalUsersToProcess == m.totalUsersProcessed {
-			cmds = append(cmds, switchStatus(gettingPsaTickets))
+			cmds = append(cmds, saveDataCmd(), switchStatus(gettingPsaTickets))
+		}
+
+	case migratingTickets:
+		if len(m.data.SelectedOrgs) == m.ticketOrgsMigrated {
+			cmds = append(cmds, saveDataCmd(), switchStatus(done), saveDataCmd())
 		}
 	}
 
@@ -321,11 +347,30 @@ func (m *RootModel) View() string {
 		return runSpinner("Initializing")
 	}
 
+	var s string
+	switch m.status {
+	case awaitingStart:
+		s += "Press the SPACE key to begin"
+	case pickingOrgs:
+		s += m.form.View()
+	case done:
+		s += "Migration complete"
+	default:
+		s += runSpinner(string(m.status))
+	}
+
+	if m.status != awaitingStart && m.status != pickingOrgs {
+		s += fmt.Sprintf("\n\nOrgs With Tickets: %d\n"+
+			"Total Users Processed: %d/%d\n"+
+			"Tickets Migrated: %d/%d\n",
+			m.orgsWithTickets, m.totalUsersProcessed, m.totalUsersToProcess, m.ticketsMigrated, m.ticketsToMigrate)
+	}
+
 	mainView := lipgloss.NewStyle().
 		Width(windowWidth).
 		Height(verticalLeftForMainView).
 		PaddingLeft(1).
-		Render(m.currentModel.View())
+		Render(s)
 
 	views := []string{titleBar("Ticket Migration Utility"), mainView, viewportDivider(), m.viewport.View(), appFooter()}
 
