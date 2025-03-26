@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"time"
 )
 
 type PatchPayload []PatchOperation
@@ -80,6 +81,47 @@ func (c *Client) PostTicket(ctx context.Context, ticket *Ticket) (*Ticket, error
 	}
 
 	return t, nil
+}
+
+func (c *Client) CloseTicket(ctx context.Context, ticket *Ticket, closedStatusId int, closedDate time.Time, closedBy *Owner) error {
+	u := fmt.Sprintf("%s/service/tickets/%d", baseUrl, ticket.Id)
+
+	payload := PatchPayload{
+		{
+			Op:    "replace",
+			Path:  "status/id",
+			Value: closedStatusId,
+		},
+		{
+			Op:    "replace",
+			Path:  "closedDate",
+			Value: closedDate,
+		},
+		{
+			Op:    "replace",
+			Path:  "closedBy",
+			Value: closedBy.Identifier,
+		},
+		{
+			Op:    "replace",
+			Path:  "closedFlag",
+			Value: true,
+		},
+	}
+
+	payloadBytes, err := json.Marshal(payload)
+	slog.Debug("ticket status update payload created", "payload", string(payloadBytes))
+	if err != nil {
+		return fmt.Errorf("marshaling patch operation to json: %w", err)
+	}
+
+	body := bytes.NewReader(payloadBytes)
+
+	if _, err := c.ApiRequest(ctx, "PATCH", u, body, nil); err != nil {
+		return fmt.Errorf("updating the ticket status: %w", err)
+	}
+
+	return nil
 }
 
 func (c *Client) UpdateTicketStatus(ctx context.Context, ticket *Ticket, newStatusId int) error {

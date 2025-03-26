@@ -7,6 +7,7 @@ import (
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/psa"
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/zendesk"
 	"log/slog"
+	"strconv"
 	"strings"
 )
 
@@ -29,40 +30,32 @@ func (m *RootModel) getUsersToMigrate(org *orgMigrationDetails) tea.Cmd {
 			m.totalErrors++
 			return nil
 		}
+		slog.Info("got users for org", "orgName", org.ZendeskOrg.Name, "totalUsers", len(users))
 
+		m.usersToCheck += len(users)
 		for _, user := range users {
 			slog.Debug("got user", "orgName", org.ZendeskOrg.Name, "userName", user.Name)
-			idString := fmt.Sprintf("%d", user.Id)
-			if _, ok := m.data.UsersInPsa[idString]; !ok {
-				slog.Debug("adding user to org", "orgName", org.ZendeskOrg.Name, "userName", user.Name)
-				m.addUserToUsersMap(idString, &userMigrationDetails{ZendeskUser: &user, PsaCompany: org.PsaOrg})
+			idString := strconv.Itoa(user.Id)
+			if _, ok := m.data.UsersInPsa[idString]; ok {
+				slog.Debug("user already in psa", "orgName", org.ZendeskOrg.Name, "userName", user.Name)
+				continue
 			} else {
-				slog.Debug("user already in org", "orgName", org.ZendeskOrg.Name, "userName", user.Name)
+				slog.Debug("adding to list of users to migrate", "orgName", org.ZendeskOrg.Name, "userName", user.Name)
+				m.data.UsersToMigrate[idString] = &userMigrationDetails{ZendeskUser: &user, PsaCompany: org.PsaOrg}
 			}
 		}
 
-		slog.Info("got users for org", "orgName", org.ZendeskOrg.Name, "totalUsers", len(org.UsersToMigrate))
 		m.orgsCheckedForUsers++
 		return nil
 	}
 }
 
-func (m *RootModel) addUserToUsersMap(idString string, user *userMigrationDetails) {
-	m.data.UsersToMigrate[idString] = user
-}
-
-func (m *RootModel) migrateUsers(user *userMigrationDetails) tea.Cmd {
+func (m *RootModel) migrateUser(user *userMigrationDetails) tea.Cmd {
 	return func() tea.Msg {
-		if user.UserMigrated {
-			slog.Debug("user already migrated", "userEmail", user.ZendeskUser.Email)
-			m.totalUsersProcessed++
-			return nil
-		}
 
 		if user.ZendeskUser.Email == "" {
 			slog.Warn("zendesk user has no email address - skipping", "userName", user.ZendeskUser.Name)
-			m.totalUsersProcessed++
-			m.totalUsersSkipped++
+			m.usersSkipped++
 			return nil
 		}
 
@@ -77,18 +70,17 @@ func (m *RootModel) migrateUsers(user *userMigrationDetails) tea.Cmd {
 				if err != nil {
 					slog.Error("creating user", "userName", user.ZendeskUser.Email, "error", err)
 					m.data.writeToOutput(badRedOutput("ERROR", fmt.Errorf("creating user %s: %v", user.ZendeskUser.Email, err)))
-					m.totalUsersProcessed++
+					m.usersSkipped++
 					m.totalErrors++
 					return nil
 				}
 
 				slog.Debug("matched zendesk user to psa user", "userEmail", user.ZendeskUser.Email)
-				m.totalNewUsersCreated++
 
 			} else {
 				slog.Error("matching zendesk user to psa user", "userEmail", user.ZendeskUser.Email, "error", err)
 				m.data.writeToOutput(badRedOutput("ERROR", fmt.Errorf("matching zendesk user to psa user %s: %v", user.ZendeskUser.Email, err)))
-				m.totalUsersProcessed++
+				m.usersSkipped++
 				m.totalErrors++
 				return nil
 			}
@@ -96,28 +88,25 @@ func (m *RootModel) migrateUsers(user *userMigrationDetails) tea.Cmd {
 
 		if err := m.updateContactFieldValue(user); err != nil {
 			if errors.Is(err, ZendeskFieldAlreadySetErr{}) {
-				user.UserMigrated = true
 				slog.Debug("zendesk user already has psa contact id field", "userEmail", user.ZendeskUser.Email, "psaContactId", user.PsaContact.Id)
-				m.totalUsersProcessed++
+
+			} else {
+				slog.Error("updating user contact field value in zendesk", "userEmail", user.ZendeskUser.Email, "error", err)
+				m.data.writeToOutput(badRedOutput("ERROR", fmt.Errorf("updating contact field in zendesk for %s: %v", user.ZendeskUser.Email, err)))
+				m.usersSkipped++
+				m.totalErrors++
 				return nil
 			}
-
-			slog.Error("updating user contact field value in zendesk", "userEmail", user.ZendeskUser.Email, "error", err)
-			m.data.writeToOutput(badRedOutput("ERROR", fmt.Errorf("updating contact field in zendesk for %s: %v", user.ZendeskUser.Email, err)))
-			m.totalUsersProcessed++
-			m.totalErrors++
-			return nil
 		}
 
 		if user.PsaContact != nil && user.ZendeskUser.UserFields.PSAContactId == user.PsaContact.Id {
-			user.UserMigrated = true
 			slog.Info("user is fully migrated", "userEmail", user.ZendeskUser.Email, "psaContactId", user.PsaContact.Id)
 			m.data.writeToOutput(goodGreenOutput("SUCCESS", fmt.Sprintf("User fully migrated: %s", user.ZendeskUser.Email)))
-			m.totalUsersProcessed++
+			m.data.UsersInPsa[strconv.Itoa(user.ZendeskUser.Id)] = user
+			m.usersMigrated++
 		}
 		return nil
 	}
-
 }
 
 func (m *RootModel) matchZdUserToCwContact(user *zendesk.User) (*psa.Contact, error) {

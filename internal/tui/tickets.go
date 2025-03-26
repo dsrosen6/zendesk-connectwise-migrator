@@ -56,9 +56,9 @@ func (m *RootModel) runTicketMigration(org *orgMigrationDetails) tea.Cmd {
 			if testLimit > 0 && m.ticketsMigrated >= testLimit {
 				slog.Info("testLimit reached")
 				m.ticketOrgsMigrated++
-				break
+				return nil
 			}
-			
+
 			var err error
 			ticket.PsaTicket, err = m.createBaseTicket(org, ticket)
 			if err != nil {
@@ -76,15 +76,16 @@ func (m *RootModel) runTicketMigration(org *orgMigrationDetails) tea.Cmd {
 				continue
 			}
 
-			if err := m.createTicketNotes(org, ticket, comments); err != nil {
+			if err := m.createTicketNotes(ticket, comments); err != nil {
 				slog.Error("creating comments for connectwise ticket", "orgName", org.ZendeskOrg.Name, "ticketId", ticket.PsaTicket.Id, "error", err)
 				m.data.writeToOutput(badRedOutput("ERROR", fmt.Errorf("creating comments on ticket %d: %w", ticket.PsaTicket.Id, err)))
 				m.totalErrors++
 				continue
 			}
 
-			if ticket.ZendeskTicket.Status == "closed" {
-				if err := m.client.CwClient.UpdateTicketStatus(ctx, ticket.PsaTicket, m.data.PsaInfo.StatusClosed.Id); err != nil {
+			if ticket.ZendeskTicket.Status == "closed" || ticket.ZendeskTicket.Status == "solved" {
+				slog.Debug("closing ticket", "closedOn", ticket.ZendeskTicket.UpdatedAt, "closedBy", ticket.PsaTicket.Owner.Identifier)
+				if err := m.client.CwClient.CloseTicket(ctx, ticket.PsaTicket, m.data.PsaInfo.StatusClosed.Id, ticket.ZendeskTicket.UpdatedAt, ticket.PsaTicket.Owner); err != nil {
 					slog.Error("error closing ticket", "orgName", org.ZendeskOrg.Name, "zendeskTicketId", ticket.ZendeskTicket.Id, "psaTicketId", ticket.PsaTicket.Id, "error", err)
 					m.data.writeToOutput(badRedOutput("ERROR", fmt.Errorf("closing %s psa ticket %d: %w", org.ZendeskOrg.Name, ticket.PsaTicket.Id, err)))
 					m.totalErrors++
@@ -171,7 +172,7 @@ func (m *RootModel) createBaseTicket(org *orgMigrationDetails, ticket *ticketMig
 	}
 
 	userString := strconv.Itoa(int(ticket.ZendeskTicket.RequesterId))
-	if user, ok := org.UsersToMigrate[userString]; ok {
+	if user, ok := m.data.UsersInPsa[userString]; ok {
 		baseTicket.Contact = &psa.Contact{Id: user.PsaContact.Id}
 	} else {
 		return nil, fmt.Errorf("couldn't find user for ticket requester: %s", userString)
@@ -193,7 +194,7 @@ func (m *RootModel) createBaseTicket(org *orgMigrationDetails, ticket *ticketMig
 	return baseTicket, nil
 }
 
-func (m *RootModel) createTicketNotes(org *orgMigrationDetails, ticket *ticketMigrationDetails, comments []zendesk.Comment) error {
+func (m *RootModel) createTicketNotes(ticket *ticketMigrationDetails, comments []zendesk.Comment) error {
 	for _, comment := range comments {
 		note := &psa.TicketNote{}
 
@@ -202,7 +203,7 @@ func (m *RootModel) createTicketNotes(org *orgMigrationDetails, ticket *ticketMi
 		if agent, ok := m.client.Cfg.AgentMappings[authorString]; ok {
 			slog.Debug("author is in agent mappings", "authorId", authorString)
 			note.Member = &psa.Member{Id: agent.PsaId}
-		} else if contact, ok := org.UsersToMigrate[authorString]; ok {
+		} else if contact, ok := m.data.UsersInPsa[authorString]; ok {
 			slog.Debug("author is in org data", "authorId", authorString)
 			note.Contact = &psa.Contact{Id: contact.PsaContact.Id}
 		} else {
@@ -224,7 +225,7 @@ func (m *RootModel) createTicketNotes(org *orgMigrationDetails, ticket *ticketMi
 
 		note.Text += fmt.Sprintf("%s\n", comment.CreatedAt.Format("1/2/2006 3:04PM"))
 
-		ccs := m.getCcString(org, &comment)
+		ccs := m.getCcString(&comment)
 		if ccs != "" {
 			note.Text += fmt.Sprintf("CCs: %s\n", ccs)
 		}
@@ -239,7 +240,7 @@ func (m *RootModel) createTicketNotes(org *orgMigrationDetails, ticket *ticketMi
 	return nil
 }
 
-func (m *RootModel) getCcString(org *orgMigrationDetails, comment *zendesk.Comment) string {
+func (m *RootModel) getCcString(comment *zendesk.Comment) string {
 	var ccs []string
 	for _, cc := range comment.Via.Source.To.EmailCcs {
 		// check if cc is a string
@@ -254,7 +255,7 @@ func (m *RootModel) getCcString(org *orgMigrationDetails, comment *zendesk.Comme
 				slog.Debug("cc is in zendesk agent mappings", "agent", ccString, "email", agent.Email)
 				ccs = append(ccs, agent.Email)
 			} else {
-				if contact, ok := org.UsersToMigrate[ccString]; ok {
+				if contact, ok := m.data.UsersInPsa[ccString]; ok {
 					slog.Debug("cc is in org data", "id", ccString, "email", contact.ZendeskUser.Email)
 					ccs = append(ccs, contact.ZendeskUser.Email)
 				}

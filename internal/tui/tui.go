@@ -13,7 +13,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/migration"
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/psa"
-	"github.com/dsrosen/zendesk-connectwise-migrator/internal/zendesk"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -50,20 +49,18 @@ type RootModel struct {
 }
 
 type statistics struct {
-	orgsProcessed        int
-	orgsWithTickets      int
-	orgsNotInPsa         int
-	orgsMigrated         int
-	orgsCheckedForUsers  int
-	totalUsersToProcess  int
-	totalNewUsersCreated int
-	totalUsersProcessed  int
-	totalUsersSkipped    int
-	ticketsToMigrate     int
-	ticketsMigrated      int
-	ticketOrgsToMigrate  int
-	ticketOrgsMigrated   int
-	totalErrors          int
+	orgsChecked         int
+	orgsNotInPsa        int
+	orgsMigrated        int
+	orgsCheckedForUsers int
+	usersToCheck        int
+	usersMigrated       int
+	usersSkipped        int
+	ticketsToMigrate    int
+	ticketsMigrated     int
+	ticketOrgsToMigrate int
+	ticketOrgsMigrated  int
+	totalErrors         int
 }
 
 type submodels struct {
@@ -74,17 +71,18 @@ type submodels struct {
 }
 
 type MigrationData struct {
-	Output         strings.Builder `json:"output"`
-	Tags           []tagDetails
-	Orgs           map[string]*orgMigrationDetails `json:"orgs"`
-	ZendeskTickets []zendesk.Ticket
-	SelectedOrgs   []*orgMigrationDetails
+	AllOrgs      map[string]*orgMigrationDetails  `json:"all_orgs"`
+	OrgsInPsa    map[string]*orgMigrationDetails  `json:"orgs_in_psa"`
+	UsersInPsa   map[string]*userMigrationDetails `json:"users_in_psa"`
+	TicketsInPsa map[string]int                   `json:"tickets_in_psa"`
+	LastSaved    time.Time                        `json:"last_saved"`
 
-	UsersInPsa   map[string]int `json:"users_in_psa"`
-	TicketsInPsa map[string]int `json:"tickets_in_psa"`
-
-	UsersToMigrate map[string]*userMigrationDetails
 	PsaInfo        PsaInfo
+	Tags           []tagDetails
+	SelectedOrgs   []*orgMigrationDetails
+	UsersToMigrate map[string]*userMigrationDetails
+
+	Output strings.Builder
 }
 
 type PsaInfo struct {
@@ -159,7 +157,7 @@ func NewModel(cx context.Context, client *migration.Client, mainDir string) (*Ro
 		// if the file doesn't exist, we'll just create a new one
 		if errors.Is(err, os.ErrNotExist) {
 			slog.Warn("no migration data file found - will create a new one at first save")
-			data = &MigrationData{Orgs: make(map[string]*orgMigrationDetails)}
+			data = &MigrationData{AllOrgs: make(map[string]*orgMigrationDetails)}
 		} else {
 			return nil, fmt.Errorf("importing file from JSON: %w", err)
 		}
@@ -172,11 +170,7 @@ func NewModel(cx context.Context, client *migration.Client, mainDir string) (*Ro
 	}
 
 	if data.UsersInPsa == nil {
-		data.UsersInPsa = make(map[string]int)
-	}
-
-	if data.UsersToMigrate == nil {
-		data.UsersToMigrate = make(map[string]*userMigrationDetails)
+		data.UsersInPsa = make(map[string]*userMigrationDetails)
 	}
 
 	data.PsaInfo = PsaInfo{
@@ -244,7 +238,7 @@ func (m *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.getOrgs()
 		case comparingOrgs:
 			var checkOrgCmds []tea.Cmd
-			for _, org := range m.data.Orgs {
+			for _, org := range m.data.AllOrgs {
 				checkOrgCmds = append(checkOrgCmds, m.checkOrg(org))
 			}
 
@@ -254,6 +248,7 @@ func (m *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.form.Init(), switchStatus(pickingOrgs))
 			return m, tea.Sequence(cmds...)
 		case gettingUsers:
+			m.data.UsersToMigrate = make(map[string]*userMigrationDetails)
 			for _, org := range m.data.SelectedOrgs {
 				cmds = append(cmds, m.getUsersToMigrate(org))
 			}
@@ -261,7 +256,7 @@ func (m *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Sequence(cmds...) // TODO: switch to batch when ready for speed
 		case migratingUsers:
 			for _, user := range m.data.UsersToMigrate {
-				cmds = append(cmds, m.migrateUsers(user))
+				cmds = append(cmds, m.migrateUser(user))
 			}
 
 			return m, tea.Sequence(cmds...) // TODO: switch to batch when ready for speed
@@ -284,7 +279,7 @@ func (m *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch m.status {
 	case comparingOrgs:
-		if len(m.data.Orgs) == m.orgsProcessed {
+		if len(m.data.AllOrgs) == m.orgsChecked {
 			cmds = append(cmds, saveDataCmd(), switchStatus(initOrgForm))
 		}
 
@@ -300,8 +295,8 @@ func (m *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch m.status {
 			case pickingOrgs:
 				if m.allOrgsSelected {
-					for _, org := range m.data.Orgs {
-						if !org.OrgMigrated {
+					for _, org := range m.data.AllOrgs {
+						if !org.Migrated {
 							continue
 						}
 						m.data.SelectedOrgs = append(m.data.SelectedOrgs, org)
@@ -318,7 +313,8 @@ func (m *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case migratingUsers:
-		if m.totalUsersToProcess == m.totalUsersProcessed {
+		if len(m.data.UsersToMigrate) == m.usersMigrated+m.usersSkipped {
+			slog.Info("all users migrated, beginning ticket migration")
 			cmds = append(cmds, saveDataCmd(), switchStatus(gettingPsaTickets))
 		}
 
@@ -359,12 +355,12 @@ func (m *RootModel) View() string {
 		s += runSpinner(string(m.status))
 	}
 
-	if m.status != awaitingStart && m.status != pickingOrgs {
-		s += fmt.Sprintf("\n\nOrgs With Tickets: %d\n"+
-			"Total Users Processed: %d/%d\n"+
-			"Tickets Migrated: %d/%d\n",
-			m.orgsWithTickets, m.totalUsersProcessed, m.totalUsersToProcess, m.ticketsMigrated, m.ticketsToMigrate)
-	}
+	//if m.status != awaitingStart && m.status != pickingOrgs {
+	//	s += fmt.Sprintf("\n\nOrgs With Tickets: %d\n"+
+	//		"Total Users Processed: %d/%d\n"+
+	//		"Tickets Migrated: %d/%d\n",
+	//		m.orgsWithTickets, m.totalUsersChecked, m.totalUsersToCheck, m.ticketsMigrated, m.ticketsToMigrate)
+	//}
 
 	mainView := lipgloss.NewStyle().
 		Width(windowWidth).
@@ -372,7 +368,7 @@ func (m *RootModel) View() string {
 		PaddingLeft(1).
 		Render(s)
 
-	views := []string{titleBar("Ticket Migration Utility"), mainView, viewportDivider(), m.viewport.View(), appFooter()}
+	views := []string{titleBar(fmt.Sprintf("Ticket Migration Utility | Last Saved: %s", m.data.LastSaved)), mainView, viewportDivider(), m.viewport.View(), appFooter()}
 
 	return lipgloss.JoinVertical(lipgloss.Top, views...)
 }
@@ -393,7 +389,8 @@ func (m *RootModel) writeDataToFile() tea.Cmd {
 			m.data.writeToOutput(badRedOutput("ERROR", fmt.Errorf("couldn't write data to file: %w", err)))
 			return nil
 		}
-		m.data.writeToOutput(goodGreenOutput("SUCCESS", "Saved data to file - ~/ticket-migration/migration_data.json"))
+
+		m.data.LastSaved = time.Now()
 		return nil
 	}
 }

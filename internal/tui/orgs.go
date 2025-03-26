@@ -17,12 +17,11 @@ type orgMigrationDetails struct {
 	ZendeskOrg *zendesk.Organization `json:"zendesk_org"`
 	PsaOrg     *psa.Company          `json:"psa_org"`
 
-	Tag         *tagDetails `json:"zendesk_tag"`
-	HasTickets  bool        `json:"has_tickets"`
-	OrgMigrated bool        `json:"org_migrated"`
+	Tag        *tagDetails `json:"zendesk_tag"`
+	HasTickets bool        `json:"has_tickets"`
+	Migrated   bool        `json:"org_migrated"`
 
 	MigrationSelected bool `json:"migration_selected"`
-	UserMigDone       bool
 }
 
 type tagDetails struct {
@@ -77,7 +76,7 @@ func (m *RootModel) getOrgs() tea.Cmd {
 
 			for _, org := range orgs {
 				idString := fmt.Sprintf("%d", org.Id)
-				if _, ok := m.data.Orgs[idString]; !ok {
+				if _, ok := m.data.AllOrgs[idString]; !ok {
 					slog.Debug("adding org to migration data", "zendeskOrgId", idString, "orgName", org.Name)
 
 					md := &orgMigrationDetails{
@@ -85,7 +84,7 @@ func (m *RootModel) getOrgs() tea.Cmd {
 						Tag:        &tag,
 					}
 
-					m.data.addOrgToOrgsMap(idString, md)
+					m.data.AllOrgs[idString] = md
 				} else {
 					slog.Debug("org already in migration data", "zendeskOrgId", org.Id, "orgName", org.Name)
 				}
@@ -96,22 +95,12 @@ func (m *RootModel) getOrgs() tea.Cmd {
 	}
 }
 
-func (d *MigrationData) addOrgToOrgsMap(idString string, org *orgMigrationDetails) {
-	d.Orgs[idString] = org
-}
-
 func (m *RootModel) checkOrg(org *orgMigrationDetails) tea.Cmd {
 	return func() tea.Msg {
-		if org.OrgMigrated {
-			slog.Debug("org already migrated",
-				"orgName", org.ZendeskOrg.Name,
-				"psaCompanyId", org.PsaOrg.Id,
-				"zendeskPsaCompanyField", org.ZendeskOrg.OrganizationFields.PSACompanyId,
-			)
-			m.data.writeToOutput(goodBlueOutput("NO ACTION", fmt.Sprintf("Org already migrated: %s", org.ZendeskOrg.Name)))
-			m.orgsProcessed++
+		if org.Migrated {
+			slog.Debug("org already migrated", "orgName", org.ZendeskOrg.Name)
+			m.orgsChecked++
 			m.orgsMigrated++
-			m.orgsWithTickets++
 			return nil
 		}
 
@@ -127,19 +116,16 @@ func (m *RootModel) checkOrg(org *orgMigrationDetails) tea.Cmd {
 		if err != nil {
 			slog.Error("getting tickets for org", "orgName", org.ZendeskOrg.Name, "error", err)
 			m.data.writeToOutput(badRedOutput("ERROR", fmt.Errorf("couldn't get tickets for org %s: %w", org.ZendeskOrg.Name, err)))
-			m.orgsProcessed++
+			m.orgsChecked++
 			m.totalErrors++
 			return nil
 		}
 
-		if len(tickets) > 0 {
-			org.HasTickets = true
-			m.orgsWithTickets++
-		} else {
+		if len(tickets) == 0 {
 			// We only care about orgs with tickets - no need to check further
 			slog.Debug("org has no tickets", "orgName", org.ZendeskOrg.Name)
 			m.data.writeToOutput(infoOutput("INFO", fmt.Sprintf("org has no tickets: %s", org.ZendeskOrg.Name)))
-			m.orgsProcessed++
+			m.orgsChecked++
 			return nil
 		}
 
@@ -148,7 +134,7 @@ func (m *RootModel) checkOrg(org *orgMigrationDetails) tea.Cmd {
 			// TODO: Add actual org creation
 			slog.Warn("org is not in PSA", "orgName", org.ZendeskOrg.Name)
 			m.data.writeToOutput(warnYellowOutput("WARNING", fmt.Sprintf("Error: org not in PSA: %s", org.ZendeskOrg.Name)))
-			m.orgsProcessed++
+			m.orgsChecked++
 			m.orgsNotInPsa++
 			return nil
 		}
@@ -156,17 +142,17 @@ func (m *RootModel) checkOrg(org *orgMigrationDetails) tea.Cmd {
 		if err := m.updateCompanyFieldValue(org); err != nil {
 			slog.Error("updating company field value in zendesk", "error", err)
 			m.data.writeToOutput(badRedOutput("ERROR", fmt.Errorf("couldn't zendesk company field value for org %s: %w", org.ZendeskOrg.Name, err)))
-			m.orgsProcessed++
+			m.orgsChecked++
 			m.totalErrors++
 			return nil
 		}
 
 		if org.PsaOrg != nil && org.ZendeskOrg.OrganizationFields.PSACompanyId == int64(org.PsaOrg.Id) {
-			org.OrgMigrated = true
 			slog.Debug("org is ready for user migration", "orgName", org.ZendeskOrg.Name)
 			m.data.writeToOutput(goodBlueOutput("NO ACTION", fmt.Sprintf("Org is ready for migration: %s", org.ZendeskOrg.Name)))
-			m.orgsProcessed++
+			m.orgsChecked++
 			m.orgsMigrated++
+			org.Migrated = true
 		}
 
 		return nil
@@ -229,8 +215,8 @@ func (m *RootModel) orgSelectionForm() *huh.Form {
 
 func (m *RootModel) orgOptions() []huh.Option[*orgMigrationDetails] {
 	var orgOptions []huh.Option[*orgMigrationDetails]
-	for _, org := range m.data.Orgs {
-		if org.OrgMigrated {
+	for _, org := range m.data.AllOrgs {
+		if org.Migrated {
 			opt := huh.Option[*orgMigrationDetails]{
 				Key:   org.ZendeskOrg.Name,
 				Value: org,
