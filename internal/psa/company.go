@@ -3,7 +3,6 @@ package psa
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"net/url"
 )
 
@@ -19,7 +18,6 @@ func (c *Client) GetCompanyByName(ctx context.Context, name string) (*Company, e
 	}
 
 	if len(cos) != 1 {
-		slog.Warn("matching companies - does not equal 1 company", "totalCompanies", len(cos))
 		return nil, fmt.Errorf("expected 1 company, got %d", len(cos))
 	}
 

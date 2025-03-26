@@ -61,7 +61,6 @@ func (c *Client) ConnectionTest(ctx context.Context) error {
 func (c *Client) ApiRequest(ctx context.Context, method, url string, body io.Reader, target interface{}) (PaginationDetails, error) {
 	pagination, err := c.apiRequest(ctx, method, url, body, target)
 	if err != nil {
-		slog.Warn("Connectwise API Error", "error", err)
 		return pagination, fmt.Errorf("running ConnectWise PSA API request: %w", err)
 	}
 
@@ -120,7 +119,6 @@ func (c *Client) apiRequest(ctx context.Context, method, url string, body io.Rea
 			if retryAfterHeader != "" {
 				retryAfter, err = strconv.Atoi(retryAfterHeader)
 				if err != nil {
-					slog.Warn("failed to parse Retry-After header", "error", err)
 					retryAfter = 1
 				}
 

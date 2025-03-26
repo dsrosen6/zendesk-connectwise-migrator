@@ -3,7 +3,6 @@ package zendesk
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"time"
 )
 
@@ -128,7 +127,7 @@ func (c *Client) GetTicketsWithQuery(ctx context.Context, q SearchQuery, pageSiz
 		allTickets = append(allTickets, nextPage.Tickets...)
 		currentPage = nextPage
 	}
-	
+
 	return allTickets, nil
 }
 
@@ -141,7 +140,6 @@ func (c *Client) GetOrgTickets(ctx context.Context, orgId int64) ([]Ticket, erro
 		return nil, fmt.Errorf("getting org tickets: %w", err)
 	}
 
-	slog.Debug("got initial page of tickets", "orgId", orgId, "totalInitialTickets", len(currentPage.Tickets))
 	allTickets = append(allTickets, currentPage.Tickets...)
 
 	for currentPage.Meta.HasMore {
@@ -150,12 +148,10 @@ func (c *Client) GetOrgTickets(ctx context.Context, orgId int64) ([]Ticket, erro
 			return nil, fmt.Errorf("getting next page of org tickets: %w", err)
 		}
 
-		slog.Debug("got next page of tickets", "orgId", orgId, "totalTicketsInPage", len(nextPage.Tickets))
 		allTickets = append(allTickets, nextPage.Tickets...)
 		currentPage = nextPage
 	}
 
-	slog.Debug("finished getting tickets for org", "orgId", orgId, "totalTicketsInPage", len(allTickets))
 	return allTickets, nil
 }
 

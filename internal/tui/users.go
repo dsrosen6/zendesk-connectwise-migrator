@@ -55,6 +55,7 @@ func (m *RootModel) migrateUser(user *userMigrationDetails) tea.Cmd {
 
 		if user.ZendeskUser.Email == "" {
 			slog.Warn("zendesk user has no email address - skipping", "userName", user.ZendeskUser.Name)
+			m.data.writeToOutput(warnYellowOutput("WARN", fmt.Sprintf("user has no email address, skipping migration: %s", user.ZendeskUser.Name)))
 			m.usersSkipped++
 			return nil
 		}
@@ -66,32 +67,38 @@ func (m *RootModel) migrateUser(user *userMigrationDetails) tea.Cmd {
 			if errors.Is(err, psa.NoUserFoundErr{}) {
 				slog.Debug("user does not exist in psa - attempting to create new user", "userEmail", user.ZendeskUser.Email)
 				user.PsaContact, err = m.createPsaContact(user)
-
 				if err != nil {
-					slog.Error("creating user", "userName", user.ZendeskUser.Email, "error", err)
+					slog.Error("creating user", "userEmail", user.ZendeskUser.Email, "zendeskUserId", user.ZendeskUser.Id, "error", err)
 					m.data.writeToOutput(badRedOutput("ERROR", fmt.Errorf("creating user %s: %v", user.ZendeskUser.Email, err)))
 					m.usersSkipped++
 					m.totalErrors++
 					return nil
+				} else {
+					slog.Debug("created new psa user", "userName", user.ZendeskUser.Email, "psaContactId", user.PsaContact.Id)
 				}
 
-				slog.Debug("matched zendesk user to psa user", "userEmail", user.ZendeskUser.Email)
-
 			} else {
-				slog.Error("matching zendesk user to psa user", "userEmail", user.ZendeskUser.Email, "error", err)
+				slog.Error("matching zendesk user to psa user", "userEmail", user.ZendeskUser.Email, "zendeskUserId", user.ZendeskUser.Id, "error", err)
 				m.data.writeToOutput(badRedOutput("ERROR", fmt.Errorf("matching zendesk user to psa user %s: %v", user.ZendeskUser.Email, err)))
 				m.usersSkipped++
 				m.totalErrors++
 				return nil
 			}
+
+		} else {
+			slog.Debug("matched zendesk user to psa user", "userEmail", user.ZendeskUser.Email, "psaContactId", user.PsaContact.Id)
 		}
 
 		if err := m.updateContactFieldValue(user); err != nil {
 			if errors.Is(err, ZendeskFieldAlreadySetErr{}) {
-				slog.Debug("zendesk user already has psa contact id field", "userEmail", user.ZendeskUser.Email, "psaContactId", user.PsaContact.Id)
+				slog.Info("zendesk user already has psa contact id field", "userEmail", user.ZendeskUser.Email, "psaContactId", user.PsaContact.Id)
+				m.data.writeToOutput(goodBlueOutput("NO ACTION", fmt.Sprintf("user already existing in PSA: %s", user.ZendeskUser.Email)))
+				m.data.UsersInPsa[strconv.Itoa(user.ZendeskUser.Id)] = user
+				m.usersMigrated++
+				return nil
 
 			} else {
-				slog.Error("updating user contact field value in zendesk", "userEmail", user.ZendeskUser.Email, "error", err)
+				slog.Error("updating user contact field value in zendesk", "userEmail", user.ZendeskUser.Email, "zendeskUserId", user.ZendeskUser.Id, "psaContactId", user.PsaContact.Id, "error", err)
 				m.data.writeToOutput(badRedOutput("ERROR", fmt.Errorf("updating contact field in zendesk for %s: %v", user.ZendeskUser.Email, err)))
 				m.usersSkipped++
 				m.totalErrors++
@@ -99,12 +106,10 @@ func (m *RootModel) migrateUser(user *userMigrationDetails) tea.Cmd {
 			}
 		}
 
-		if user.PsaContact != nil && user.ZendeskUser.UserFields.PSAContactId == user.PsaContact.Id {
-			slog.Info("user is fully migrated", "userEmail", user.ZendeskUser.Email, "psaContactId", user.PsaContact.Id)
-			m.data.writeToOutput(goodGreenOutput("SUCCESS", fmt.Sprintf("User fully migrated: %s", user.ZendeskUser.Email)))
-			m.data.UsersInPsa[strconv.Itoa(user.ZendeskUser.Id)] = user
-			m.usersMigrated++
-		}
+		slog.Info("user is fully migrated", "userEmail", user.ZendeskUser.Email, "psaContactId", user.PsaContact.Id)
+		m.data.writeToOutput(goodGreenOutput("SUCCESS", fmt.Sprintf("User fully migrated: %s", user.ZendeskUser.Email)))
+		m.data.UsersInPsa[strconv.Itoa(user.ZendeskUser.Id)] = user
+		m.usersMigrated++
 		return nil
 	}
 }
@@ -146,10 +151,6 @@ func (e ZendeskFieldAlreadySetErr) Error() string {
 
 func (m *RootModel) updateContactFieldValue(user *userMigrationDetails) error {
 	if user.ZendeskUser.UserFields.PSAContactId == user.PsaContact.Id {
-		slog.Debug("zendesk user already has PSA contact id field",
-			"userEmail", user.ZendeskUser.Email,
-			"psaContactId", user.PsaContact.Id,
-		)
 		return ZendeskFieldAlreadySetErr{}
 	}
 
@@ -162,10 +163,10 @@ func (m *RootModel) updateContactFieldValue(user *userMigrationDetails) error {
 			return fmt.Errorf("updating user with PSA contact id: %w", err)
 		}
 
-		slog.Info("updated zendesk user with PSA contact id", "userEmail", user.ZendeskUser.Email)
+		slog.Debug("updated zendesk user with PSA contact id", "userEmail", user.ZendeskUser.Email)
 		return nil
 	} else {
-		slog.Error("user psa id is 0 - cannot update psa_contact field in zendesk", "userName", user.ZendeskUser.Name)
+		slog.Error("user psa id is 0 - cannot update psa_contact field in zendesk", "userEmail", user.ZendeskUser.Email, "zendeskUserId", user.ZendeskUser.Id)
 		return errors.New("user psa id is 0 - cannot update psa_contact field in zendesk")
 	}
 }

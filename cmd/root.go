@@ -47,7 +47,7 @@ var rootCmd = &cobra.Command{
 			return err
 		}
 
-		model, err := tui.NewModel(ctx, client, dir)
+		model, err := tui.NewModel(ctx, client)
 		if err != nil {
 			return fmt.Errorf("initializing terminal interface: %w", err)
 		}

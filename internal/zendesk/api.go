@@ -51,7 +51,7 @@ func (c *Client) ConnectionTest(ctx context.Context) error {
 // ApiRequest is a wrapper for apiRequest, meant for more streamlined error logging.
 func (c *Client) ApiRequest(ctx context.Context, method, url string, body io.Reader, target interface{}) error {
 	if err := c.apiRequest(ctx, method, url, body, target); err != nil {
-		slog.Warn("zendesk api error", "error", err)
+		slog.Debug("zendesk api error", "error", err)
 		return fmt.Errorf("running Zendesk API request: %w", err)
 	}
 
@@ -97,7 +97,6 @@ func (c *Client) apiRequest(ctx context.Context, method, url string, body io.Rea
 			if retryAfterHeader != "" {
 				retryAfter, err = strconv.Atoi(retryAfterHeader)
 				if err != nil {
-					slog.Warn("failed to parse Retry-After header", "error", err)
 					retryAfter = 1
 				}
 
@@ -109,8 +108,8 @@ func (c *Client) apiRequest(ctx context.Context, method, url string, body io.Rea
 				"retryAfter", retryAfter,
 				"totalRetries", fmt.Sprintf("%d/%d", attempt, maxRetries))
 		} else {
-			retryAfter = 15
-			slog.Warn("zendesk API request failed - waiting 15 seconds if retries remain", "statusCode", res.StatusCode,
+			retryAfter = 5
+			slog.Warn("zendesk API request failed - waiting 5 seconds if retries remain", "statusCode", res.StatusCode,
 				"totalRetries", fmt.Sprintf("%d/%d", attempt, maxRetries))
 		}
 

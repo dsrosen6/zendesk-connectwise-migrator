@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/url"
 	"strings"
 	"time"
@@ -15,6 +14,7 @@ type SearchQuery struct {
 	TicketsOrganizationId int64
 	TicketCreatedAfter    time.Time
 	TicketCreatedBefore   time.Time
+	GetOpenTickets        bool
 }
 
 type SearchType string
@@ -76,6 +76,10 @@ func buildExportSearchQueryString(searchType SearchType, query SearchQuery) (str
 		if query.TicketCreatedBefore != (time.Time{}) {
 			queryParts = append(queryParts, fmt.Sprintf("created<%s", query.TicketCreatedBefore.Format("2006-01-02")))
 		}
+
+		if !query.GetOpenTickets {
+			queryParts = append(queryParts, fmt.Sprintf("status:closed status:solved"))
+		}
 	}
 
 	if len(queryParts) == 0 {
@@ -85,7 +89,6 @@ func buildExportSearchQueryString(searchType SearchType, query SearchQuery) (str
 	joinedParts := strings.Join(queryParts, " ")
 
 	q := url.QueryEscape(joinedParts)
-	slog.Debug("query created", "string", q)
 	return q, nil
 }
 

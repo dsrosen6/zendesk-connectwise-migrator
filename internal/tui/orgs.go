@@ -32,6 +32,7 @@ type tagDetails struct {
 
 func (m *RootModel) getTagDetails() tea.Cmd {
 	return func() tea.Msg {
+		m.data.Tags = []tagDetails{}
 		for _, tag := range m.client.Cfg.Zendesk.TagsToMigrate {
 			slog.Debug("getting tag details", "tag", tag.Name)
 			tm := &timeConversionDetails{
@@ -61,13 +62,13 @@ func (m *RootModel) getTagDetails() tea.Cmd {
 
 func (m *RootModel) getOrgs() tea.Cmd {
 	return func() tea.Msg {
-		slog.Info("getting orgs for tags", "tags", m.client.Cfg.Zendesk.TagsToMigrate)
+		slog.Debug("getting orgs for tags", "tags", m.client.Cfg.Zendesk.TagsToMigrate)
 		for _, tag := range m.data.Tags {
 			slog.Debug("getting orgs for tag", "tag", tag.Name)
 			q := &zendesk.SearchQuery{}
 			q.Tags = []string{tag.Name}
 
-			slog.Info("getting all orgs from zendesk for tag group", "tag", tag.Name)
+			slog.Debug("getting all orgs from zendesk for tag group", "tag", tag.Name)
 
 			orgs, err := m.client.ZendeskClient.GetOrganizationsWithQuery(ctx, *q)
 			if err != nil {
@@ -110,7 +111,9 @@ func (m *RootModel) checkOrg(org *orgMigrationDetails) tea.Cmd {
 			TicketCreatedBefore:   org.Tag.EndDate,
 		}
 
-		q.TicketsOrganizationId = org.ZendeskOrg.Id
+		if m.client.Cfg.MigrateOpenTickets {
+			q.GetOpenTickets = true
+		}
 
 		tickets, err := m.client.ZendeskClient.GetTicketsWithQuery(ctx, q, 20, 1)
 		if err != nil {
@@ -140,7 +143,7 @@ func (m *RootModel) checkOrg(org *orgMigrationDetails) tea.Cmd {
 		}
 
 		if err := m.updateCompanyFieldValue(org); err != nil {
-			slog.Error("updating company field value in zendesk", "error", err)
+			slog.Error("updating company field value in zendesk", "orgName", org.ZendeskOrg.Name, "zendeskOrgId", org.ZendeskOrg.Id, "error", err)
 			m.data.writeToOutput(badRedOutput("ERROR", fmt.Errorf("couldn't zendesk company field value for org %s: %w", org.ZendeskOrg.Name, err)))
 			m.orgsChecked++
 			m.totalErrors++
@@ -148,7 +151,7 @@ func (m *RootModel) checkOrg(org *orgMigrationDetails) tea.Cmd {
 		}
 
 		if org.PsaOrg != nil && org.ZendeskOrg.OrganizationFields.PSACompanyId == int64(org.PsaOrg.Id) {
-			slog.Debug("org is ready for user migration", "orgName", org.ZendeskOrg.Name)
+			slog.Info("org ready for migration", "orgName", org.ZendeskOrg.Name, "zendeskOrgId", org.ZendeskOrg.Id)
 			m.data.writeToOutput(goodBlueOutput("NO ACTION", fmt.Sprintf("Org is ready for migration: %s", org.ZendeskOrg.Name)))
 			m.orgsChecked++
 			m.orgsMigrated++
@@ -161,7 +164,7 @@ func (m *RootModel) checkOrg(org *orgMigrationDetails) tea.Cmd {
 
 func (m *RootModel) updateCompanyFieldValue(org *orgMigrationDetails) error {
 	if org.ZendeskOrg.OrganizationFields.PSACompanyId == int64(org.PsaOrg.Id) {
-		slog.Debug("zendesk org already has PSA company id field", "orgName", org.ZendeskOrg.Name, "psaCompanyId", org.ZendeskOrg.OrganizationFields.PSACompanyId)
+		slog.Debug("zendesk org already has PSA company id field", "orgName", org.ZendeskOrg.Name, "zendeskOrgId", org.ZendeskOrg.Id, "psaCompanyId", org.ZendeskOrg.OrganizationFields.PSACompanyId)
 		return nil
 	}
 
@@ -174,10 +177,10 @@ func (m *RootModel) updateCompanyFieldValue(org *orgMigrationDetails) error {
 			return fmt.Errorf("updating organization with PSA company id: %w", err)
 		}
 
-		slog.Info("updated zendesk organization with PSA company id", "orgName", org.ZendeskOrg.Name, "psaCompanyId", org.PsaOrg.Id)
+		slog.Info("updated zendesk organization with PSA company id", "orgName", org.ZendeskOrg.Name, "zendeskOrgId", org.ZendeskOrg.Id, "psaCompanyId", org.PsaOrg.Id)
 		return nil
 	} else {
-		slog.Error("org psa id is 0 - cannot update psa_company field in zendesk", "orgName", org.ZendeskOrg.Name)
+		slog.Error("org psa id is 0 - cannot update psa_company field in zendesk", "orgName", org.ZendeskOrg.Name, "zendeskOrgId", org.ZendeskOrg.Id)
 		return errors.New("org psa id is 0 - cannot update psa_company field in zendesk")
 	}
 }

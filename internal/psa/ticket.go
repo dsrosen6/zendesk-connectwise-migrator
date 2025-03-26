@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"net/url"
 )
 
@@ -24,7 +23,6 @@ func (c *Client) GetTickets(ctx context.Context, childConditionQuery *string) ([
 	}
 
 	u := fmt.Sprintf("%s/service/tickets?page=1&pageSize=1000%s", baseUrl, q)
-	slog.Debug("getting psa tickets via connectwise api", "url", u)
 	var allTickets []Ticket
 	var currentPage []Ticket
 	var pagination PaginationDetails
@@ -67,7 +65,6 @@ func (c *Client) PostTicket(ctx context.Context, ticket *Ticket) (*Ticket, error
 	u := fmt.Sprintf("%s/service/tickets", baseUrl)
 
 	ticketBytes, err := json.Marshal(ticket)
-	slog.Debug("ticket creation payload created", "payload", string(ticketBytes))
 	if err != nil {
 		return nil, fmt.Errorf("marshaling the ticket to json: %w", err)
 	}
@@ -94,7 +91,6 @@ func (c *Client) UpdateTicketStatus(ctx context.Context, ticket *Ticket, newStat
 	}
 
 	payloadBytes, err := json.Marshal(payload)
-	slog.Debug("ticket status update payload created", "payload", string(payloadBytes))
 	if err != nil {
 		return fmt.Errorf("marshaling patch operation to json: %w", err)
 	}

@@ -29,7 +29,9 @@ type Config struct {
 	Connectwise   ConnectwiseConfig       `mapstructure:"connectwise_psa" json:"connectwise_psa"`
 	AgentMappings map[string]AgentMapping `mapstructure:"agent_mappings" json:"agent_mappings"`
 
-	TestLimit int `mapstructure:"ticket_migration_limit" json:"ticket_migration_limit"`
+	MigrateOpenTickets bool   `mapstructure:"migrate_open_tickets" json:"migrate_open_tickets"`
+	TimeZone           string `mapstructure:"time_zone" json:"time_zone"` // for timestamps in tickets, ie "America/Chicago" - if not entered in config, defaults to UTC
+	TestLimit          int    `mapstructure:"ticket_migration_limit" json:"ticket_migration_limit"`
 }
 
 type ZendeskConfig struct {
@@ -305,7 +307,7 @@ func (cfg *Config) validateZendeskCustomFields() error {
 }
 
 func (c *Client) processAgentMappings(ctx context.Context) error {
-	slog.Info("processing agent mappings")
+	slog.Debug("processing agent mappings")
 	if c.Cfg.AgentMappings == nil {
 		c.Cfg.AgentMappings = make(map[string]AgentMapping)
 	}
@@ -377,7 +379,7 @@ func confirmProcessZendeskFields() (bool, error) {
 func (c *Client) processZendeskPsaFields(ctx context.Context) error {
 	uf, err := c.ZendeskClient.GetUserFieldByKey(ctx, psaContactFieldKey)
 	if err != nil {
-		slog.Info("no psa_contact field found in zendesk - creating")
+		slog.Debug("no psa_contact field found in zendesk - creating")
 		uf, err = c.ZendeskClient.PostUserField(ctx, "integer", psaContactFieldKey, psaContactFieldTitle, psaFieldDescription)
 		if err != nil {
 			return fmt.Errorf("creating psa contact field: %w", err)
@@ -386,7 +388,7 @@ func (c *Client) processZendeskPsaFields(ctx context.Context) error {
 
 	cf, err := c.ZendeskClient.GetOrgFieldByKey(ctx, psaCompanyFieldKey)
 	if err != nil {
-		slog.Info("no psa_company field found in zendesk - creating")
+		slog.Debug("no psa_company field found in zendesk - creating")
 		cf, err = c.ZendeskClient.PostOrgField(ctx, "integer", psaCompanyFieldKey, psaCompanyFieldTitle, psaFieldDescription)
 		if err != nil {
 			return fmt.Errorf("creating psa company field: %w", err)

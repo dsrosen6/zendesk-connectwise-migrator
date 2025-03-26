@@ -2,8 +2,6 @@ package tui
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/spinner"
@@ -14,8 +12,6 @@ import (
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/migration"
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/psa"
 	"log/slog"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 )
@@ -35,17 +31,17 @@ var (
 )
 
 type RootModel struct {
-	mainDir string
-	client  *migration.Client
-	data    *MigrationData
-	form    *huh.Form
+	client *migration.Client
+	data   *MigrationData
+	form   *huh.Form
 	statistics
 	allOrgsSelected bool
 	submodels       *submodels
 	viewport        viewport.Model
 	viewState
 	scrollManagement
-	status status
+	status   status
+	timeZone *time.Location
 }
 
 type statistics struct {
@@ -71,11 +67,9 @@ type submodels struct {
 }
 
 type MigrationData struct {
-	AllOrgs      map[string]*orgMigrationDetails  `json:"all_orgs"`
-	OrgsInPsa    map[string]*orgMigrationDetails  `json:"orgs_in_psa"`
-	UsersInPsa   map[string]*userMigrationDetails `json:"users_in_psa"`
-	TicketsInPsa map[string]int                   `json:"tickets_in_psa"`
-	LastSaved    time.Time                        `json:"last_saved"`
+	AllOrgs      map[string]*orgMigrationDetails
+	UsersInPsa   map[string]*userMigrationDetails
+	TicketsInPsa map[string]int
 
 	PsaInfo        PsaInfo
 	Tags           []tagDetails
@@ -134,36 +128,18 @@ const (
 	done               status = "Done"
 )
 
-type saveDataMsg struct{}
-
-func saveDataCmd() tea.Cmd {
-	return func() tea.Msg {
-		return saveDataMsg{}
-	}
-}
-
-func NewModel(cx context.Context, client *migration.Client, mainDir string) (*RootModel, error) {
+func NewModel(cx context.Context, client *migration.Client) (*RootModel, error) {
 	ctx = cx
 
 	spnr = spinner.New()
 	spnr.Spinner = spinner.Ellipsis
 	spnr.Style = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "236", Dark: "248"})
 
-	data := &MigrationData{}
-
-	var err error
-	path := filepath.Join(mainDir, "migration_data.json")
-	data, err = importJsonFile(path)
-	if err != nil {
-		// if the file doesn't exist, we'll just create a new one
-		if errors.Is(err, os.ErrNotExist) {
-			slog.Warn("no migration data file found - will create a new one at first save")
-			data = &MigrationData{AllOrgs: make(map[string]*orgMigrationDetails)}
-		} else {
-			return nil, fmt.Errorf("importing file from JSON: %w", err)
-		}
-	} else {
-		slog.Debug("imported migration data from file")
+	data := &MigrationData{
+		AllOrgs:        make(map[string]*orgMigrationDetails),
+		UsersInPsa:     make(map[string]*userMigrationDetails),
+		TicketsInPsa:   make(map[string]int),
+		UsersToMigrate: make(map[string]*userMigrationDetails),
 	}
 
 	if data.TicketsInPsa == nil {
@@ -186,11 +162,25 @@ func NewModel(cx context.Context, client *migration.Client, mainDir string) (*Ro
 		ZendeskClosedDateField: &psa.CustomField{Id: client.Cfg.Connectwise.FieldIds.ZendeskClosedDate},
 	}
 
+	ls := "UTC"
+	if client.Cfg.TimeZone != "" {
+		slog.Debug("time zone manually set in config", "timeZone", client.Cfg.TimeZone)
+		ls = client.Cfg.TimeZone
+	}
+
+	location, err := time.LoadLocation(ls)
+	if err != nil {
+		return nil, fmt.Errorf("converting time zone: %w", err)
+	}
+	slog.Info("setting time zone", "timeZone", ls)
+
+	slog.Info("migrate open tickets set to", "value", client.Cfg.MigrateOpenTickets)
+
 	return &RootModel{
-		mainDir: mainDir,
-		client:  client,
-		data:    data,
-		status:  awaitingStart,
+		client:   client,
+		data:     data,
+		status:   awaitingStart,
+		timeZone: location,
 	}, nil
 }
 
@@ -265,7 +255,7 @@ func (m *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			return m, tea.Sequence(cmds...) // TODO: switch to batch when ready for speed
 		case gettingPsaTickets:
-			return m, tea.Sequence(m.getAlreadyMigrated(), saveDataCmd())
+			return m, m.getAlreadyMigrated()
 		case migratingTickets:
 			for _, org := range m.data.SelectedOrgs {
 				cmds = append(cmds, m.runTicketMigration(org))
@@ -274,8 +264,6 @@ func (m *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Sequence(cmds...) // TODO: switch to batch when ready for speed
 		}
 
-	case saveDataMsg:
-		return m, m.writeDataToFile()
 	}
 
 	spnr, cmd = spnr.Update(msg)
@@ -284,7 +272,7 @@ func (m *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch m.status {
 	case comparingOrgs:
 		if len(m.data.AllOrgs) == m.orgsChecked {
-			cmds = append(cmds, saveDataCmd(), switchStatus(initOrgForm))
+			cmds = append(cmds, switchStatus(initOrgForm))
 		}
 
 	case pickingOrgs:
@@ -313,18 +301,18 @@ func (m *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case gettingUsers:
 		if len(m.data.SelectedOrgs) == m.orgsCheckedForUsers {
-			cmds = append(cmds, saveDataCmd(), switchStatus(migratingUsers))
+			cmds = append(cmds, switchStatus(migratingUsers))
 		}
 
 	case migratingUsers:
 		if len(m.data.UsersToMigrate) == m.usersMigrated+m.usersSkipped {
 			slog.Info("all users migrated, beginning ticket migration")
-			cmds = append(cmds, saveDataCmd(), switchStatus(gettingPsaTickets))
+			cmds = append(cmds, switchStatus(gettingPsaTickets))
 		}
 
 	case migratingTickets:
 		if len(m.data.SelectedOrgs) == m.ticketOrgsMigrated {
-			cmds = append(cmds, saveDataCmd(), switchStatus(done), saveDataCmd())
+			cmds = append(cmds, switchStatus(done))
 		}
 	}
 
@@ -372,45 +360,9 @@ func (m *RootModel) View() string {
 		PaddingLeft(1).
 		Render(s)
 
-	views := []string{titleBar(fmt.Sprintf("Ticket Migration Utility | Last Saved: %s", m.data.LastSaved)), mainView, viewportDivider(), m.viewport.View(), appFooter()}
+	views := []string{titleBar("Ticket Migration Utility"), mainView, viewportDivider(), m.viewport.View(), appFooter()}
 
 	return lipgloss.JoinVertical(lipgloss.Top, views...)
-}
-
-func (m *RootModel) writeDataToFile() tea.Cmd {
-	return func() tea.Msg {
-		f := filepath.Join(m.mainDir, "migration_data.json")
-
-		jsonString, err := json.MarshalIndent(m.data, "", "  ")
-		if err != nil {
-			slog.Error("marshaling migration data to file", "error", err)
-			m.data.writeToOutput(badRedOutput("ERROR", fmt.Errorf("couldn't write data to file due to json marshal error: %w", err)))
-			return nil
-		}
-
-		if err := os.WriteFile(f, jsonString, os.ModePerm); err != nil {
-			slog.Error("writing migration data to file", "error", err)
-			m.data.writeToOutput(badRedOutput("ERROR", fmt.Errorf("couldn't write data to file: %w", err)))
-			return nil
-		}
-
-		m.data.LastSaved = time.Now()
-		return nil
-	}
-}
-
-func importJsonFile(path string) (*MigrationData, error) {
-	data := &MigrationData{}
-	file, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("reading migration data file: %w", err)
-	}
-
-	if err := json.Unmarshal(file, data); err != nil {
-		return nil, fmt.Errorf("unmarshaling migration data file: %w", err)
-	}
-
-	return data, nil
 }
 
 func runSpinner(text string) string {

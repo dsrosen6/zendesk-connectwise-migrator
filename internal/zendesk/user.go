@@ -18,6 +18,10 @@ type UserBody struct {
 	User *User `json:"user"`
 }
 
+type UserResp struct {
+	User User `json:"user"`
+}
+
 type User struct {
 	Id                   int           `json:"id"`
 	Url                  string        `json:"url"`
@@ -84,15 +88,15 @@ func (c *Client) UpdateUser(ctx context.Context, user *User) (*User, error) {
 	return u.User, nil
 }
 
-func (c *Client) GetUser(ctx context.Context, userId int64) (User, error) {
+func (c *Client) GetUser(ctx context.Context, userId int64) (*User, error) {
 	url := fmt.Sprintf("%s/users/%d", c.baseUrl, userId)
-	u := &User{}
+	u := &UserResp{}
 
 	if err := c.ApiRequest(ctx, "GET", url, nil, &u); err != nil {
-		return User{}, fmt.Errorf("an error occured getting the user: %w", err)
+		return nil, fmt.Errorf("an error occured getting the user: %w", err)
 	}
 
-	return *u, nil
+	return &u.User, nil
 }
 
 func (c *Client) GetOrganizationUsers(ctx context.Context, orgId int64) ([]User, error) {
