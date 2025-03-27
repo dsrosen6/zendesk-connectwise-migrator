@@ -250,7 +250,7 @@ func (m *RootModel) createTicketNotes(ticket *ticketMigrationDetails, comments [
 			note.Text += fmt.Sprintf("CCs: %s\n", ccs)
 		}
 
-		note.Text += fmt.Sprintf("\n%s", comment.PlainBody)
+		note.Text += fmt.Sprintf("\n%s", comment.Body)
 
 		if err := m.client.CwClient.PostTicketNote(ctx, ticket.PsaTicket.Id, note); err != nil {
 			return fmt.Errorf("creating note in ticket: %w", err)
