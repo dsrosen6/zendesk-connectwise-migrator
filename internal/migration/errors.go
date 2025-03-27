@@ -1,4 +1,4 @@
-package tui
+package migration
 
 type apiErrMsg struct {
 	Err error

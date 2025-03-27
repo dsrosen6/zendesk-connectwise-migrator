@@ -1,4 +1,4 @@
-package tui
+package migration
 
 import (
 	"errors"
@@ -23,7 +23,7 @@ type fatalErrMsg struct {
 	Err error
 }
 
-func (m *RootModel) runTicketMigration(org *orgMigrationDetails) tea.Cmd {
+func (m *Model) runTicketMigration(org *orgMigrationDetails) tea.Cmd {
 	return func() tea.Msg {
 		zTickets, err := m.getZendeskTickets(org)
 		if err != nil {
@@ -52,7 +52,7 @@ func (m *RootModel) runTicketMigration(org *orgMigrationDetails) tea.Cmd {
 		}
 
 		for _, ticket := range ticketsToMigrate {
-			if m.client.Cfg.TestLimit > 0 && m.ticketsMigrated >= m.client.Cfg.TestLimit {
+			if m.client.Cfg.TicketLimit > 0 && m.ticketsMigrated >= m.client.Cfg.TicketLimit {
 				slog.Info("testLimit reached")
 				m.ticketOrgsMigrated++
 				return nil
@@ -105,7 +105,7 @@ func (m *RootModel) runTicketMigration(org *orgMigrationDetails) tea.Cmd {
 	}
 }
 
-func (m *RootModel) getAlreadyMigrated() tea.Cmd {
+func (m *Model) getAlreadyMigrated() tea.Cmd {
 	return func() tea.Msg {
 		s := fmt.Sprintf("id=%d AND value != null", m.data.PsaInfo.ZendeskTicketIdField.Id)
 		tickets, err := m.client.CwClient.GetTickets(ctx, &s)
@@ -134,7 +134,7 @@ func (m *RootModel) getAlreadyMigrated() tea.Cmd {
 	}
 }
 
-func (m *RootModel) getZendeskTickets(org *orgMigrationDetails) ([]zendesk.Ticket, error) {
+func (m *Model) getZendeskTickets(org *orgMigrationDetails) ([]zendesk.Ticket, error) {
 	slog.Debug("getting tickets for org", "orgName", org.ZendeskOrg.Name)
 	q := zendesk.SearchQuery{
 		TicketsOrganizationId: org.ZendeskOrg.Id,
@@ -146,7 +146,7 @@ func (m *RootModel) getZendeskTickets(org *orgMigrationDetails) ([]zendesk.Ticke
 		q.GetOpenTickets = true
 	}
 
-	tickets, err := m.client.ZendeskClient.GetTicketsWithQuery(ctx, q, 100, m.client.Cfg.TestLimit)
+	tickets, err := m.client.ZendeskClient.GetTicketsWithQuery(ctx, q, 100, m.client.Cfg.TicketLimit)
 	if err != nil {
 		slog.Error("getting tickets for org", "orgName", org.ZendeskOrg.Name, "error", err)
 		return nil, fmt.Errorf("getting tickets via zendesk api: %w", err)
@@ -155,7 +155,7 @@ func (m *RootModel) getZendeskTickets(org *orgMigrationDetails) ([]zendesk.Ticke
 	return tickets, nil
 }
 
-func (m *RootModel) createBaseTicket(org *orgMigrationDetails, ticket *ticketMigrationDetails) (*psa.Ticket, error) {
+func (m *Model) createBaseTicket(org *orgMigrationDetails, ticket *ticketMigrationDetails) (*psa.Ticket, error) {
 	if ticket.ZendeskTicket == nil {
 		return nil, errors.New("zendesk ticket does not exist")
 	}
@@ -209,7 +209,7 @@ func (m *RootModel) createBaseTicket(org *orgMigrationDetails, ticket *ticketMig
 	return baseTicket, nil
 }
 
-func (m *RootModel) createTicketNotes(ticket *ticketMigrationDetails, comments []zendesk.Comment) error {
+func (m *Model) createTicketNotes(ticket *ticketMigrationDetails, comments []zendesk.Comment) error {
 	for _, comment := range comments {
 		note := &psa.TicketNote{}
 
@@ -260,7 +260,7 @@ func (m *RootModel) createTicketNotes(ticket *ticketMigrationDetails, comments [
 	return nil
 }
 
-func (m *RootModel) getCcString(comment *zendesk.Comment) string {
+func (m *Model) getCcString(comment *zendesk.Comment) string {
 	var ccs []string
 	for _, cc := range comment.Via.Source.To.EmailCcs {
 		// check if cc is a string

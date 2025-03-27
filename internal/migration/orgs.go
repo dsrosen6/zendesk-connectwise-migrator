@@ -1,11 +1,10 @@
-package tui
+package migration
 
 import (
 	"errors"
 	"fmt"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
-	"github.com/dsrosen/zendesk-connectwise-migrator/internal/migration"
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/psa"
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/zendesk"
 	"log/slog"
@@ -30,7 +29,7 @@ type tagDetails struct {
 	EndDate   time.Time `json:"end_date"`
 }
 
-func (m *RootModel) getTagDetails() tea.Cmd {
+func (m *Model) getTagDetails() tea.Cmd {
 	return func() tea.Msg {
 		m.data.Tags = []tagDetails{}
 		for _, tag := range m.client.Cfg.Zendesk.TagsToMigrate {
@@ -60,7 +59,7 @@ func (m *RootModel) getTagDetails() tea.Cmd {
 	}
 }
 
-func (m *RootModel) getOrgs() tea.Cmd {
+func (m *Model) getOrgs() tea.Cmd {
 	return func() tea.Msg {
 		slog.Debug("getting orgs for tags", "tags", m.client.Cfg.Zendesk.TagsToMigrate)
 		for _, tag := range m.data.Tags {
@@ -96,7 +95,7 @@ func (m *RootModel) getOrgs() tea.Cmd {
 	}
 }
 
-func (m *RootModel) checkOrg(org *orgMigrationDetails) tea.Cmd {
+func (m *Model) checkOrg(org *orgMigrationDetails) tea.Cmd {
 	return func() tea.Msg {
 		if org.Migrated {
 			slog.Debug("org already migrated", "orgName", org.ZendeskOrg.Name)
@@ -162,7 +161,7 @@ func (m *RootModel) checkOrg(org *orgMigrationDetails) tea.Cmd {
 	}
 }
 
-func (m *RootModel) updateCompanyFieldValue(org *orgMigrationDetails) error {
+func (m *Model) updateCompanyFieldValue(org *orgMigrationDetails) error {
 	if org.ZendeskOrg.OrganizationFields.PSACompanyId == int64(org.PsaOrg.Id) {
 		slog.Debug("zendesk org already has PSA company id field", "orgName", org.ZendeskOrg.Name, "zendeskOrgId", org.ZendeskOrg.Id, "psaCompanyId", org.ZendeskOrg.OrganizationFields.PSACompanyId)
 		return nil
@@ -185,7 +184,7 @@ func (m *RootModel) updateCompanyFieldValue(org *orgMigrationDetails) error {
 	}
 }
 
-func (m *RootModel) matchZdOrgToCwCompany(org *zendesk.Organization) (*psa.Company, error) {
+func (m *Model) matchZdOrgToCwCompany(org *zendesk.Organization) (*psa.Company, error) {
 	comp, err := m.client.CwClient.GetCompanyByName(ctx, org.Name)
 	if err != nil {
 		return nil, err
@@ -194,7 +193,7 @@ func (m *RootModel) matchZdOrgToCwCompany(org *zendesk.Organization) (*psa.Compa
 	return comp, nil
 }
 
-func (m *RootModel) orgSelectionForm() *huh.Form {
+func (m *Model) orgSelectionForm() *huh.Form {
 	return huh.NewForm(
 
 		huh.NewGroup(
@@ -213,10 +212,10 @@ func (m *RootModel) orgSelectionForm() *huh.Form {
 				Options(m.orgOptions()...).
 				Value(&m.data.SelectedOrgs),
 		).WithHideFunc(func() bool { return m.allOrgsSelected == true }),
-	).WithHeight(verticalLeftForMainView).WithShowHelp(false).WithTheme(migration.CustomHuhTheme())
+	).WithHeight(verticalLeftForMainView).WithShowHelp(false).WithTheme(customFormTheme())
 }
 
-func (m *RootModel) orgOptions() []huh.Option[*orgMigrationDetails] {
+func (m *Model) orgOptions() []huh.Option[*orgMigrationDetails] {
 	var orgOptions []huh.Option[*orgMigrationDetails]
 	for _, org := range m.data.AllOrgs {
 		if org.Migrated {
@@ -234,4 +233,35 @@ func (m *RootModel) orgOptions() []huh.Option[*orgMigrationDetails] {
 	})
 
 	return orgOptions
+}
+
+func convertDateStringsToTimeTime(details *timeConversionDetails) (time.Time, time.Time, error) {
+	var startDate, endDate time.Time
+	var err error
+
+	start := details.startString
+	if start == "" {
+		start = details.startFallback
+	}
+
+	end := details.endString
+	if end == "" {
+		end = details.endFallback
+	}
+
+	if start != "" {
+		startDate, err = convertStrTime(start)
+		if err != nil {
+			return time.Time{}, time.Time{}, fmt.Errorf("converting start date string to time.Time: %w", err)
+		}
+	}
+
+	if end != "" {
+		endDate, err = convertStrTime(end)
+		if err != nil {
+			return time.Time{}, time.Time{}, fmt.Errorf("converting end date string to time.Time: %w", err)
+		}
+	}
+
+	return startDate, endDate, nil
 }

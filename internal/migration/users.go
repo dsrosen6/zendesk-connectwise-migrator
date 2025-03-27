@@ -1,4 +1,4 @@
-package tui
+package migration
 
 import (
 	"errors"
@@ -20,7 +20,7 @@ type userMigrationDetails struct {
 	HasTickets bool `json:"has_tickets"`
 }
 
-func (m *RootModel) getUsersToMigrate(org *orgMigrationDetails) tea.Cmd {
+func (m *Model) getUsersToMigrate(org *orgMigrationDetails) tea.Cmd {
 	return func() tea.Msg {
 		users, err := m.client.ZendeskClient.GetOrganizationUsers(ctx, org.ZendeskOrg.Id)
 		if err != nil {
@@ -50,7 +50,7 @@ func (m *RootModel) getUsersToMigrate(org *orgMigrationDetails) tea.Cmd {
 	}
 }
 
-func (m *RootModel) migrateUser(user *userMigrationDetails) tea.Cmd {
+func (m *Model) migrateUser(user *userMigrationDetails) tea.Cmd {
 	return func() tea.Msg {
 
 		if user.ZendeskUser.Email == "" {
@@ -114,7 +114,7 @@ func (m *RootModel) migrateUser(user *userMigrationDetails) tea.Cmd {
 	}
 }
 
-func (m *RootModel) matchZdUserToCwContact(user *zendesk.User) (*psa.Contact, error) {
+func (m *Model) matchZdUserToCwContact(user *zendesk.User) (*psa.Contact, error) {
 	contact, err := m.client.CwClient.GetContactByEmail(ctx, user.Email)
 	if err != nil {
 		return nil, err
@@ -122,7 +122,7 @@ func (m *RootModel) matchZdUserToCwContact(user *zendesk.User) (*psa.Contact, er
 	return contact, nil
 }
 
-func (m *RootModel) createPsaContact(user *userMigrationDetails) (*psa.Contact, error) {
+func (m *Model) createPsaContact(user *userMigrationDetails) (*psa.Contact, error) {
 	c := &psa.ContactPostBody{}
 	c.FirstName, c.LastName = separateName(user.ZendeskUser.Name)
 
@@ -149,7 +149,7 @@ func (e ZendeskFieldAlreadySetErr) Error() string {
 	return "zendesk user already has psa contact id field"
 }
 
-func (m *RootModel) updateContactFieldValue(user *userMigrationDetails) error {
+func (m *Model) updateContactFieldValue(user *userMigrationDetails) error {
 	if user.ZendeskUser.UserFields.PSAContactId == user.PsaContact.Id {
 		return ZendeskFieldAlreadySetErr{}
 	}

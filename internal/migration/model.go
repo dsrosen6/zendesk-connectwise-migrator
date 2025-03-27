@@ -1,4 +1,4 @@
-package tui
+package migration
 
 import (
 	"context"
@@ -9,7 +9,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/dsrosen/zendesk-connectwise-migrator/internal/migration"
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/psa"
 	"log/slog"
 	"strings"
@@ -30,18 +29,52 @@ var (
 	verticalLeftForMainView int
 )
 
-type RootModel struct {
-	client *migration.Client
-	data   *MigrationData
-	form   *huh.Form
-	statistics
+type Model struct {
+	client          *Client
+	data            *Data
+	form            *huh.Form
+	status          status
+	timeZone        *time.Location
 	allOrgsSelected bool
-	submodels       *submodels
 	viewport        viewport.Model
+	statistics
 	viewState
 	scrollManagement
-	status   status
-	timeZone *time.Location
+}
+
+type Data struct {
+	AllOrgs      map[string]*orgMigrationDetails
+	UsersInPsa   map[string]*userMigrationDetails
+	TicketsInPsa map[string]int
+
+	PsaInfo        PsaInfo
+	Tags           []tagDetails
+	SelectedOrgs   []*orgMigrationDetails
+	UsersToMigrate map[string]*userMigrationDetails
+
+	Output strings.Builder
+}
+
+type status string
+
+const (
+	awaitingStart      status = "Awaiting Start"
+	gettingTags        status = "Getting Tags from Config"
+	gettingZendeskOrgs status = "Getting Zendesk Organizations"
+	comparingOrgs      status = "Checking for Organization Matches"
+	initOrgForm        status = "Initializing Form"
+	pickingOrgs        status = "Selecting Organizations"
+	gettingUsers       status = "Getting Users"
+	migratingUsers     status = "Migrating Users"
+	gettingPsaTickets  status = "Getting PSA Tickets"
+	migratingTickets   status = "Migrating Tickets"
+	done               status = "Done"
+)
+
+type switchStatusMsg status
+
+func switchStatus(s status) tea.Cmd {
+	return func() tea.Msg { return switchStatusMsg(s) }
 }
 
 type statistics struct {
@@ -54,29 +87,8 @@ type statistics struct {
 	usersSkipped        int
 	ticketsToMigrate    int
 	ticketsMigrated     int
-	ticketOrgsToMigrate int
 	ticketOrgsMigrated  int
 	totalErrors         int
-}
-
-type submodels struct {
-	mainPage        tea.Model
-	orgMigration    tea.Model
-	userMigration   tea.Model
-	ticketMigration tea.Model
-}
-
-type MigrationData struct {
-	AllOrgs      map[string]*orgMigrationDetails
-	UsersInPsa   map[string]*userMigrationDetails
-	TicketsInPsa map[string]int
-
-	PsaInfo        PsaInfo
-	Tags           []tagDetails
-	SelectedOrgs   []*orgMigrationDetails
-	UsersToMigrate map[string]*userMigrationDetails
-
-	Output strings.Builder
 }
 
 type PsaInfo struct {
@@ -106,52 +118,22 @@ type scrollManagement struct {
 	scrollCountDown bool
 }
 
-type switchStatusMsg status
-
-func switchStatus(s status) tea.Cmd {
-	return func() tea.Msg { return switchStatusMsg(s) }
-}
-
-type status string
-
-const (
-	awaitingStart      status = "Awaiting Start"
-	gettingTags        status = "Getting Tags from Config"
-	gettingZendeskOrgs status = "Getting Zendesk Organizations"
-	comparingOrgs      status = "Checking for Organization Matches"
-	initOrgForm        status = "Initializing Form"
-	pickingOrgs        status = "Selecting Organizations"
-	gettingUsers       status = "Getting Users"
-	migratingUsers     status = "Migrating Users"
-	gettingPsaTickets  status = "Getting PSA Tickets"
-	migratingTickets   status = "Migrating Tickets"
-	done               status = "Done"
-)
-
-func NewModel(cx context.Context, client *migration.Client) (*RootModel, error) {
+func newModel(cx context.Context, client *Client) (*Model, error) {
 	ctx = cx
 
 	spnr = spinner.New()
 	spnr.Spinner = spinner.Ellipsis
 	spnr.Style = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "236", Dark: "248"})
 
-	data := &MigrationData{
+	data := &Data{
 		AllOrgs:        make(map[string]*orgMigrationDetails),
 		UsersInPsa:     make(map[string]*userMigrationDetails),
 		TicketsInPsa:   make(map[string]int),
 		UsersToMigrate: make(map[string]*userMigrationDetails),
 	}
 
-	if data.TicketsInPsa == nil {
-		data.TicketsInPsa = make(map[string]int)
-	}
-
-	if data.UsersInPsa == nil {
-		data.UsersInPsa = make(map[string]*userMigrationDetails)
-	}
-
-	if client.Cfg.TestLimit > 0 {
-		slog.Info("ticket test limit in config", "limit", client.Cfg.TestLimit)
+	if client.Cfg.TicketLimit > 0 {
+		slog.Info("ticket test limit in config", "limit", client.Cfg.TicketLimit)
 	}
 
 	data.PsaInfo = PsaInfo{
@@ -162,33 +144,43 @@ func NewModel(cx context.Context, client *migration.Client) (*RootModel, error) 
 		ZendeskClosedDateField: &psa.CustomField{Id: client.Cfg.Connectwise.FieldIds.ZendeskClosedDate},
 	}
 
-	ls := "UTC"
-	if client.Cfg.TimeZone != "" {
-		slog.Debug("time zone manually set in config", "timeZone", client.Cfg.TimeZone)
-		ls = client.Cfg.TimeZone
-	}
-
-	location, err := time.LoadLocation(ls)
+	loc, err := client.getTimeZone()
 	if err != nil {
-		return nil, fmt.Errorf("converting time zone: %w", err)
+		slog.Error("getting time zone", "error", err)
+		return nil, fmt.Errorf("getting time zone: %w", err)
 	}
-	slog.Info("setting time zone", "timeZone", ls)
 
+	slog.Info("time zone set", "timeZone", loc.String())
 	slog.Info("migrate open tickets set to", "value", client.Cfg.MigrateOpenTickets)
 
-	return &RootModel{
+	return &Model{
 		client:   client,
 		data:     data,
 		status:   awaitingStart,
-		timeZone: location,
+		timeZone: loc,
 	}, nil
 }
 
-func (m *RootModel) Init() tea.Cmd {
+func (c *Client) getTimeZone() (*time.Location, error) {
+	ls := "UTC"
+	if c.Cfg.TimeZone != "" {
+		slog.Debug("time zone manually set in config", "timeZone", c.Cfg.TimeZone)
+		ls = c.Cfg.TimeZone
+	}
+
+	loc, err := time.LoadLocation(ls)
+	if err != nil {
+		return nil, fmt.Errorf("converting time zone: %w", err)
+	}
+
+	return loc, nil
+}
+
+func (m *Model) Init() tea.Cmd {
 	return spnr.Tick
 }
 
-func (m *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var (
 		cmd  tea.Cmd
 		cmds []tea.Cmd
@@ -326,7 +318,7 @@ func (m *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-func (m *RootModel) View() string {
+func (m *Model) View() string {
 	if m.quitting {
 		return ""
 	}
@@ -373,38 +365,7 @@ func runSpinner(text string) string {
 	return fmt.Sprintf("%s%s", text, spnr.View())
 }
 
-func convertDateStringsToTimeTime(details *timeConversionDetails) (time.Time, time.Time, error) {
-	var startDate, endDate time.Time
-	var err error
-
-	start := details.startString
-	if start == "" {
-		start = details.startFallback
-	}
-
-	end := details.endString
-	if end == "" {
-		end = details.endFallback
-	}
-
-	if start != "" {
-		startDate, err = migration.ConvertStringToTime(start)
-		if err != nil {
-			return time.Time{}, time.Time{}, fmt.Errorf("converting start date string to time.Time: %w", err)
-		}
-	}
-
-	if end != "" {
-		endDate, err = migration.ConvertStringToTime(end)
-		if err != nil {
-			return time.Time{}, time.Time{}, fmt.Errorf("converting end date string to time.Time: %w", err)
-		}
-	}
-
-	return startDate, endDate, nil
-}
-
-func (m *RootModel) copyToClipboard(s string) tea.Cmd {
+func (m *Model) copyToClipboard(s string) tea.Cmd {
 	return func() tea.Msg {
 		if err := clipboard.WriteAll(s); err != nil {
 			slog.Error("copying results to clipboard", "error", err)
@@ -417,39 +378,11 @@ func (m *RootModel) copyToClipboard(s string) tea.Cmd {
 	}
 }
 
-func (m *RootModel) calculateDimensions(w, h int) tea.Cmd {
-	return func() tea.Msg {
-		windowWidth = w
-		windowHeight = h
-		mainHeaderHeight = lipgloss.Height(titleBar("Ticket Migration Utility"))
-		mainFooterHeight = lipgloss.Height(appFooter())
-		viewportDvdrHeight = lipgloss.Height(viewportDivider())
-		verticalMarginHeight = mainHeaderHeight + mainFooterHeight + viewportDvdrHeight
-		viewportHeight := (windowHeight - verticalMarginHeight) * 1 / 2
-		verticalLeftForMainView = windowHeight - verticalMarginHeight - viewportHeight
-		slog.Debug("got calculateDimensionsMsg")
-
-		if !m.ready {
-			m.viewport = viewport.New(windowWidth, viewportHeight)
-		} else {
-			m.viewport.Width = windowWidth
-			m.viewport.Height = viewportHeight
-		}
-
-		m.viewport.SetContent(m.data.Output.String())
-		m.setAutoScrollBehavior()
-		slog.Debug("setting ready to true")
-		m.ready = true
-
-		return nil
-	}
-}
-
-func (d *MigrationData) writeToOutput(s string) {
+func (d *Data) writeToOutput(s string) {
 	d.Output.WriteString(s)
 }
 
-func (m *RootModel) setAutoScrollBehavior() {
+func (m *Model) setAutoScrollBehavior() {
 	if m.viewport.AtBottom() {
 		m.scrollOverride = false
 	}

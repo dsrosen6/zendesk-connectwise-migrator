@@ -1,4 +1,4 @@
-package cmd
+package migration
 
 import (
 	"fmt"
@@ -6,7 +6,7 @@ import (
 	"os"
 )
 
-func setLogger(file *os.File) error {
+func setLogger(file *os.File, debug bool) error {
 	level := slog.LevelInfo
 	if debug {
 		level = slog.LevelDebug

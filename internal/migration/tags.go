@@ -31,7 +31,7 @@ func (cfg *Config) runZendeskTagDateForm() error {
 					Validate(validDateString).
 					Value(&tag.EndDate),
 			),
-		).WithShowHelp(false).WithKeyMap(customKeyMap()).WithTheme(CustomHuhTheme())
+		).WithShowHelp(false).WithKeyMap(customKeyMap()).WithTheme(customFormTheme())
 
 		if err := form.Run(); err != nil {
 			if errors.As(err, &huh.ErrUserAborted) {

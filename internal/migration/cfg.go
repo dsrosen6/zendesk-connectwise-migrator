@@ -11,13 +11,13 @@ import (
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/zendesk"
 	"github.com/spf13/viper"
 	"log/slog"
+	"os"
 	"sort"
 	"strconv"
-	"time"
 )
 
 const (
-	configFileSubPath = "/migrator_config.json"
+	configFileSubPath = "/config.json"
 )
 
 var (
@@ -25,13 +25,13 @@ var (
 )
 
 type Config struct {
-	Zendesk       ZendeskConfig           `mapstructure:"zendesk" json:"zendesk"`
-	Connectwise   ConnectwiseConfig       `mapstructure:"connectwise_psa" json:"connectwise_psa"`
-	AgentMappings map[string]AgentMapping `mapstructure:"agent_mappings" json:"agent_mappings"`
-
+	TicketLimit        int    `mapstructure:"ticket_limit" json:"ticket_limit"`
 	MigrateOpenTickets bool   `mapstructure:"migrate_open_tickets" json:"migrate_open_tickets"`
 	TimeZone           string `mapstructure:"time_zone" json:"time_zone"` // for timestamps in tickets, ie "America/Chicago" - if not entered in config, defaults to UTC
-	TestLimit          int    `mapstructure:"ticket_migration_limit" json:"ticket_migration_limit"`
+
+	Zendesk       ZendeskConfig           `mapstructure:"zendesk" json:"zendesk"`
+	Connectwise   ConnectwiseConfig       `mapstructure:"connectwise" json:"connectwise"`
+	AgentMappings map[string]AgentMapping `mapstructure:"agent_mappings" json:"agent_mappings"`
 }
 
 type ZendeskConfig struct {
@@ -86,7 +86,7 @@ func InitConfig(dir string) (*Config, error) {
 		// Search config in home directory with name "migrator_config" (without extension).
 		viper.AddConfigPath(configDir)
 		viper.SetConfigType("json")
-		viper.SetConfigName("migrator_config")
+		viper.SetConfigName("config")
 	}
 
 	// If a config file is found, read it in.
@@ -99,6 +99,8 @@ func InitConfig(dir string) (*Config, error) {
 			if err := viper.WriteConfigAs(path); err != nil {
 				return nil, fmt.Errorf("creating default config file: %w", err)
 			}
+			fmt.Printf("Default config file created at:\n%s\n\nPlease fill out the fields and then run the migration command again\n", path)
+			os.Exit(0)
 		} else {
 			return nil, fmt.Errorf("reading config file: %w", err)
 		}
@@ -129,44 +131,58 @@ func (cfg *Config) validatePreClient() error {
 		slog.Warn("no zendesk tags to migrate set")
 		valid = false
 
-		fmt.Println("\nNo Zendesk tags to migrate set - please enter comma-separated tags in the config file")
+		fmt.Println("\nNo Zendesk tags to migrate set in config - enter at least one")
+	} else {
+		for _, tag := range cfg.Zendesk.TagsToMigrate {
+			if tag.Name == "" {
+				slog.Warn("tag name is empty")
+				valid = false
+				fmt.Println("\nOne or more tag names are empty - please enter a name for each tag")
+				break
+			} else if tag.Name == exampleTag1.Name || tag.Name == exampleTag2.Name {
+				slog.Warn("example tags are present in config")
+				valid = false
+				fmt.Println("\nExample tags are present in config - replace them with your own tags")
+				break
+			}
+		}
 	}
 
 	if cfg.Connectwise.FieldIds.ZendeskTicketId == 0 {
 		slog.Warn("no ConnectWise PSA custom field ID set for Zendesk Ticket Number")
 		valid = false
 
-		fmt.Println("\nNo ConnectWise PSA custom field ID set for Zendesk Ticket Number - please enter the ID in the config file")
+		fmt.Println("\nNo ConnectWise PSA custom field ID set for Zendesk Ticket Number in config")
 	}
 
 	if cfg.Connectwise.FieldIds.ZendeskClosedDate == 0 {
-		slog.Warn("no ConnectWise PSA custom field ID set for Zendesk Closed Date")
+		slog.Warn("no ConnectWise PSA custom field ID set for Zendesk Closed Date in config")
 		valid = false
 
-		fmt.Println("\nNo ConnectWise PSA custom field ID set for Zendesk Closed Date - please enter the ID in the config file")
+		fmt.Println("\nNo ConnectWise PSA custom field ID set for Zendesk Closed Date in config")
 
 	}
 
 	if !valid {
-		return errors.New("one or more config values are invalid")
+		return errors.New("one or more config values are invalid - see above")
 	}
 
 	return nil
 }
 
-// validatePostClient runs after the client has been created, since we need valid API connections
+// validatePostClient runs after the Client has been created, since we need valid API connections
 // to validate these fields
 func (c *Client) validatePostClient(ctx context.Context) error {
 	action := func(ctx context.Context) error {
 		return c.testConnection(ctx)
 	}
 
-	if err := runSpinner("Testing API connections", action); err != nil {
+	if err := runConfigSpinner("Testing API connections", action); err != nil {
 		return fmt.Errorf("testing API connections: %w", err)
 	}
 
 	action = func(ctx context.Context) error { return c.processAgentMappings(ctx) }
-	if err := runSpinner("Checking agent mappings", action); err != nil {
+	if err := runConfigSpinner("Checking agent mappings", action); err != nil {
 		return fmt.Errorf("processing agent mappings: %w", err)
 	}
 
@@ -183,7 +199,7 @@ func (c *Client) validatePostClient(ctx context.Context) error {
 		action := func(ctx context.Context) error {
 			return c.processZendeskPsaFields(ctx)
 		}
-		if err := runSpinner("Processing Zendesk custom fields", action); err != nil {
+		if err := runConfigSpinner("Processing Zendesk custom fields", action); err != nil {
 			return fmt.Errorf("creating Zendesk custom fields: %w", err)
 		}
 	}
@@ -214,13 +230,13 @@ func (cfg *Config) validateCreds() error {
 	var missing []string
 
 	requiredFields := map[string]string{
-		"zendesk.api_creds.token":               cfg.Zendesk.Creds.Token,
-		"zendesk.api_creds.username":            cfg.Zendesk.Creds.Username,
-		"zendesk.api_creds.subdomain":           cfg.Zendesk.Creds.Subdomain,
-		"connectwise_psa.api_creds.company_id":  cfg.Connectwise.Creds.CompanyId,
-		"connectwise_psa.api_creds.public_key":  cfg.Connectwise.Creds.PublicKey,
-		"connectwise_psa.api_creds.private_key": cfg.Connectwise.Creds.PrivateKey,
-		"connectwise_psa.api_creds.client_id":   cfg.Connectwise.Creds.ClientId,
+		"Zendesk API Token":           cfg.Zendesk.Creds.Token,
+		"Zendesk API Username":        cfg.Zendesk.Creds.Username,
+		"Zendesk API Subdomain":       cfg.Zendesk.Creds.Subdomain,
+		"ConnectWise API Company ID":  cfg.Connectwise.Creds.CompanyId,
+		"ConnectWise API Public Key":  cfg.Connectwise.Creds.PublicKey,
+		"ConnectWise API Private Key": cfg.Connectwise.Creds.PrivateKey,
+		"ConnectWise API client ID":   cfg.Connectwise.Creds.ClientId,
 	}
 
 	for k, v := range requiredFields {
@@ -233,7 +249,7 @@ func (cfg *Config) validateCreds() error {
 	if len(missing) > 0 {
 		slog.Error("missing required config values", "missing", missing)
 
-		fmt.Println("\nThe following required API credential fields are missing:")
+		fmt.Println("\nThe following required API credential fields are missing in the config:")
 		for _, v := range missing {
 			fmt.Printf("  - %s\n", v)
 		}
@@ -359,7 +375,7 @@ func (c *Client) processAgentMappings(ctx context.Context) error {
 }
 
 func confirmProcessZendeskFields() (bool, error) {
-	proceed := true
+	var proceed bool
 	input := huh.NewConfirm().
 		Description("The migrator will check for the presence of the following custom fields in Zendesk:\n\n" +
 			"- \"psa_company_id\" (integer Organization field)\n" +
@@ -370,7 +386,7 @@ func confirmProcessZendeskFields() (bool, error) {
 		Affirmative("OK").
 		Negative("Cancel")
 
-	if err := input.WithKeyMap(customKeyMap()).WithTheme(CustomHuhTheme()).Run(); err != nil {
+	if err := input.WithKeyMap(customKeyMap()).WithTheme(customFormTheme()).Run(); err != nil {
 		return false, fmt.Errorf("running custom field confirmation input: %w", err)
 	}
 	return proceed, nil
@@ -419,12 +435,12 @@ func (cfg *Config) validateConnectwiseBoardId() error {
 func (c *Client) runBoardForm(ctx context.Context) error {
 	var boards []psa.Board
 	var err error
-	action := func(ctx context.Context) error {
+	action := func(_ context.Context) error {
 		boards, err = c.CwClient.GetBoards(ctx)
 		return err
 	}
 
-	if err := runSpinner("Getting ConnectWise PSA boards", action); err != nil {
+	if err := runConfigSpinner("Getting ConnectWise PSA boards", action); err != nil {
 		return fmt.Errorf("getting ConnectWise PSA boards: %w", err)
 	}
 
@@ -443,7 +459,7 @@ func (c *Client) runBoardForm(ctx context.Context) error {
 		Options(huh.NewOptions(boardNames...)...).
 		Value(&s)
 
-	if err := input.WithKeyMap(customKeyMap()).WithTheme(CustomHuhTheme()).Run(); err != nil {
+	if err := input.WithKeyMap(customKeyMap()).WithTheme(customFormTheme()).Run(); err != nil {
 		return fmt.Errorf("running board form: %w", err)
 	}
 
@@ -453,7 +469,7 @@ func (c *Client) runBoardForm(ctx context.Context) error {
 
 	c.Cfg.Connectwise.DestinationBoardId = boardsMap[s]
 
-	viper.Set("connectwise_psa.destination_board_id", boardsMap[s])
+	viper.Set("connectwise.destination_board_id", boardsMap[s])
 	if err := viper.WriteConfig(); err != nil {
 		return fmt.Errorf("writing config file: %w", err)
 	}
@@ -474,12 +490,12 @@ func (cfg *Config) validateConnectwiseBoardType() error {
 func (c *Client) runTicketTypeForm(ctx context.Context, boardId int) error {
 	var statuses []psa.BoardType
 	var err error
-	action := func(ctx context.Context) error {
+	action := func(_ context.Context) error {
 		statuses, err = c.CwClient.GetBoardTypes(ctx, boardId)
 		return err
 	}
 
-	if err := runSpinner("Getting ConnectWise PSA ticket types", action); err != nil {
+	if err := runConfigSpinner("Getting ConnectWise PSA ticket types", action); err != nil {
 		return fmt.Errorf("getting ConnectWise PSA ticket types: %w", err)
 	}
 
@@ -498,7 +514,7 @@ func (c *Client) runTicketTypeForm(ctx context.Context, boardId int) error {
 				Title("Choose the type you'd like tickets created as").
 				Options(huh.NewOptions(types...)...).
 				Value(&tp)),
-	).WithShowHelp(false).WithKeyMap(customKeyMap()).WithTheme(CustomHuhTheme())
+	).WithShowHelp(false).WithKeyMap(customKeyMap()).WithTheme(customFormTheme())
 
 	if err := form.Run(); err != nil {
 		return fmt.Errorf("running ticket type form: %w", err)
@@ -510,7 +526,7 @@ func (c *Client) runTicketTypeForm(ctx context.Context, boardId int) error {
 
 	c.Cfg.Connectwise.TicketType = typeMap[tp]
 
-	viper.Set("connectwise_psa.ticket_type", typeMap[tp])
+	viper.Set("connectwise.ticket_type", typeMap[tp])
 	if err := viper.WriteConfig(); err != nil {
 		return fmt.Errorf("writing config file: %w", err)
 	}
@@ -531,12 +547,12 @@ func (cfg *Config) validateConnectwiseStatuses() error {
 func (c *Client) runBoardStatusForm(ctx context.Context, boardId int) error {
 	var statuses []psa.Status
 	var err error
-	action := func(ctx context.Context) error {
+	action := func(_ context.Context) error {
 		statuses, err = c.CwClient.GetBoardStatuses(ctx, boardId)
 		return err
 	}
 
-	if err := runSpinner("Getting ConnectWise PSA board statuses", action); err != nil {
+	if err := runConfigSpinner("Getting ConnectWise PSA board statuses", action); err != nil {
 		return fmt.Errorf("getting ConnectWise PSA board statuses: %w", err)
 	}
 
@@ -560,7 +576,7 @@ func (c *Client) runBoardStatusForm(ctx context.Context, boardId int) error {
 				Title("Choose the Closed status for the chosen board").
 				Options(huh.NewOptions(statusNames...)...).
 				Value(&cl)),
-	).WithShowHelp(false).WithKeyMap(customKeyMap()).WithTheme(CustomHuhTheme())
+	).WithShowHelp(false).WithKeyMap(customKeyMap()).WithTheme(customFormTheme())
 
 	if err := form.Run(); err != nil {
 		return fmt.Errorf("running board status form: %w", err)
@@ -577,8 +593,8 @@ func (c *Client) runBoardStatusForm(ctx context.Context, boardId int) error {
 	c.Cfg.Connectwise.OpenStatusId = statusMap[op]
 	c.Cfg.Connectwise.OpenStatusId = statusMap[cl]
 
-	viper.Set("connectwise_psa.open_status_id", statusMap[op])
-	viper.Set("connectwise_psa.closed_status_id", statusMap[cl])
+	viper.Set("connectwise.open_status_id", statusMap[op])
+	viper.Set("connectwise.closed_status_id", statusMap[cl])
 	if err := viper.WriteConfig(); err != nil {
 		return fmt.Errorf("writing config file: %w", err)
 	}
@@ -593,7 +609,7 @@ func validDateString(s string) error {
 		return nil
 	}
 
-	_, err := ConvertStringToTime(s)
+	_, err := convertStrTime(s)
 	if err != nil {
 		slog.Warn("error converting date string", "error", err)
 		return errors.New("not a valid date string")
@@ -602,24 +618,28 @@ func validDateString(s string) error {
 	return nil
 }
 
+var exampleTag1 = TagDetails{
+	Name:      "example_tag_1",
+	StartDate: "2021-01-01",
+	EndDate:   "2021-12-31",
+}
+
+var exampleTag2 = TagDetails{
+	Name:      "example_tag_2",
+	StartDate: "2021-01-01",
+	EndDate:   "",
+}
+
 func setCfgDefaults() {
 	slog.Debug("setting config defaults")
-	viper.SetDefault("zendesk", ZendeskConfig{})
-	viper.SetDefault("connectwise_psa", ConnectwiseConfig{})
-	viper.SetDefault("ticket_migration_limit", 0)
+	viper.SetDefault("ticket_limit", 0)
+	viper.SetDefault("migrate_open_tickets", false)
+	viper.SetDefault("time_zone", "America/Chicago")
+	viper.SetDefault("zendesk", ZendeskConfig{TagsToMigrate: []TagDetails{exampleTag1, exampleTag2}})
+	viper.SetDefault("connectwise", ConnectwiseConfig{})
 }
 
-func ConvertStringToTime(date string) (time.Time, error) {
-	layout := "2006-01-02"
-	d, err := time.Parse(layout, date)
-	if err != nil {
-		return time.Time{}, fmt.Errorf("converting time string to datetime format: %w", err)
-	}
-
-	return d, nil
-}
-
-func runSpinner(title string, action func(context.Context) error) error {
+func runConfigSpinner(title string, action func(context.Context) error) error {
 	return spinner.New().
 		Title(fmt.Sprintf(" %s", title)).
 		Type(spinner.Line).
