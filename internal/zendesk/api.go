@@ -63,6 +63,10 @@ func (c *Client) apiRequest(ctx context.Context, method, url string, body io.Rea
 	var retryAfter int
 
 	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			slog.Debug("sending zendesk API request", "method", method, "url", url, "attempt", attempt)
+		}
+		
 		req, err := http.NewRequestWithContext(ctx, method, url, body)
 		if err != nil {
 			return fmt.Errorf("an error occured creating the request: %w", err)
@@ -97,19 +101,21 @@ func (c *Client) apiRequest(ctx context.Context, method, url string, body io.Rea
 			if retryAfterHeader != "" {
 				retryAfter, err = strconv.Atoi(retryAfterHeader)
 				if err != nil {
+					slog.Debug("failed to parse Retry-After header", "header", retryAfterHeader)
 					retryAfter = 1
 				}
 
 			} else {
+				slog.Debug("missing Retry-After header")
 				retryAfter = 1
 			}
 
-			slog.Warn("zendesk rate limit exceeded, retrying",
+			slog.Debug("zendesk rate limit exceeded, retrying",
 				"retryAfter", retryAfter,
 				"totalRetries", fmt.Sprintf("%d/%d", attempt, maxRetries))
 		} else {
 			retryAfter = 5
-			slog.Warn("zendesk API request failed - waiting 5 seconds if retries remain", "statusCode", res.StatusCode,
+			slog.Debug("zendesk API request failed - waiting 5 seconds if retries remain", "statusCode", res.StatusCode,
 				"totalRetries", fmt.Sprintf("%d/%d", attempt, maxRetries))
 		}
 

@@ -32,6 +32,15 @@ type Config struct {
 	Zendesk       ZendeskConfig           `mapstructure:"zendesk" json:"zendesk"`
 	Connectwise   ConnectwiseConfig       `mapstructure:"connectwise" json:"connectwise"`
 	AgentMappings map[string]AgentMapping `mapstructure:"agent_mappings" json:"agent_mappings"`
+
+	OutputLevels OutputLevels `mapstructure:"output_levels" json:"output_levels"`
+}
+
+type OutputLevels struct {
+	NoAction bool `mapstructure:"no_action" json:"no_action"`
+	Created  bool `mapstructure:"created" json:"created"`
+	Warn     bool `mapstructure:"warn" json:"warn"`
+	Error    bool `mapstructure:"error" json:"error"`
 }
 
 type ZendeskConfig struct {
@@ -636,6 +645,13 @@ var exampleTag2 = TagDetails{
 	EndDate:   "",
 }
 
+var defaultOutputLevels = OutputLevels{
+	NoAction: true,
+	Created:  true,
+	Warn:     true,
+	Error:    true,
+}
+
 func setCfgDefaults() {
 	slog.Debug("setting config defaults")
 	viper.SetDefault("ticket_limit", 0)
@@ -643,6 +659,7 @@ func setCfgDefaults() {
 	viper.SetDefault("time_zone", "America/Chicago")
 	viper.SetDefault("zendesk", ZendeskConfig{TagsToMigrate: []TagDetails{exampleTag1, exampleTag2}})
 	viper.SetDefault("connectwise", ConnectwiseConfig{})
+	viper.SetDefault("output_levels", defaultOutputLevels)
 }
 
 func runConfigSpinner(title string, action func(context.Context) error) error {

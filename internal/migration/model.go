@@ -17,7 +17,6 @@ import (
 )
 
 var (
-	ctx  context.Context
 	spnr spinner.Model
 
 	// App Dimensions
@@ -31,6 +30,7 @@ var (
 )
 
 type Model struct {
+	ctx             context.Context
 	client          *Client
 	data            *Data
 	form            *huh.Form
@@ -55,6 +55,15 @@ type Data struct {
 
 	Output strings.Builder
 }
+
+type outputLevel string
+
+const (
+	noActionOutput outputLevel = "noActionOutput"
+	createdOutput  outputLevel = "createdActionOutput"
+	warnOutput     outputLevel = "warnActionOutput"
+	errOutput      outputLevel = "errorActionOutput"
+)
 
 type status string
 
@@ -119,9 +128,7 @@ type scrollManagement struct {
 	scrollCountDown bool
 }
 
-func newModel(cx context.Context, client *Client) (*Model, error) {
-	ctx = cx
-
+func newModel(ctx context.Context, client *Client) (*Model, error) {
 	spnr = spinner.New()
 	spnr.Spinner = spinner.Ellipsis
 	spnr.Style = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "236", Dark: "248"})
@@ -153,8 +160,10 @@ func newModel(cx context.Context, client *Client) (*Model, error) {
 
 	slog.Info("time zone set", "timeZone", loc.String())
 	slog.Info("migrate open tickets set to", "value", client.Cfg.MigrateOpenTickets)
+	slog.Info("output levels in config", "levels", client.Cfg.OutputLevels)
 
 	return &Model{
+		ctx:      ctx,
 		client:   client,
 		data:     data,
 		status:   awaitingStart,
@@ -240,7 +249,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmds = append(cmds, m.getUsersToMigrate(org))
 			}
 
-			return m, tea.Batch(cmds...)
+			return m, tea.Sequence(cmds...)
 		case migratingUsers:
 			for _, user := range m.data.UsersToMigrate {
 				cmds = append(cmds, m.migrateUser(user))
@@ -254,9 +263,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmds = append(cmds, m.runTicketMigration(org))
 			}
 
-			return m, tea.Batch(cmds...)
+			return m, tea.Sequence(cmds...)
 		}
-
 	}
 
 	spnr, cmd = spnr.Update(msg)
@@ -372,17 +380,34 @@ func (m *Model) copyToClipboard(s string) tea.Cmd {
 		plaintext := re.ReplaceAllString(s, "")
 		if err := clipboard.WriteAll(plaintext); err != nil {
 			slog.Error("copying results to clipboard", "error", err)
-			m.data.writeToOutput(badRedOutput("ERROR", fmt.Errorf("couldn't copy results to clipboard: %w", err)))
+			m.writeToOutput(badRedOutput("ERROR", fmt.Errorf("couldn't copy results to clipboard: %w", err)), errOutput)
 			return nil
 		}
 		slog.Debug("copied result to clipboard")
-		m.data.writeToOutput(goodGreenOutput("SUCCESS", "copied results to clipboard"))
+		m.writeToOutput(goodGreenOutput("SUCCESS", "copied results to clipboard"), createdOutput)
 		return nil
 	}
 }
 
-func (d *Data) writeToOutput(s string) {
-	d.Output.WriteString(s)
+func (m *Model) writeToOutput(s string, level outputLevel) {
+	switch level {
+	case noActionOutput:
+		if m.client.Cfg.OutputLevels.NoAction {
+			m.data.Output.WriteString(s)
+		}
+	case createdOutput:
+		if m.client.Cfg.OutputLevels.Created {
+			m.data.Output.WriteString(s)
+		}
+	case warnOutput:
+		if m.client.Cfg.OutputLevels.Warn {
+			m.data.Output.WriteString(s)
+		}
+	case errOutput:
+		if m.client.Cfg.OutputLevels.Error {
+			m.data.Output.WriteString(s)
+		}
+	}
 }
 
 func (m *Model) setAutoScrollBehavior() {
