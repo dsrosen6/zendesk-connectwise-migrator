@@ -126,16 +126,14 @@ func (m *Model) checkOrg(org *orgMigrationDetails) tea.Cmd {
 		if len(tickets) == 0 {
 			// We only care about orgs with tickets - no need to check further
 			slog.Debug("org has no tickets", "orgName", org.ZendeskOrg.Name)
-			m.data.writeToOutput(infoOutput("INFO", fmt.Sprintf("org has no tickets: %s", org.ZendeskOrg.Name)))
 			m.orgsChecked++
 			return nil
 		}
 
 		org.PsaOrg, err = m.matchZdOrgToCwCompany(org.ZendeskOrg)
 		if err != nil {
-			// TODO: Add actual org creation
 			slog.Warn("org is not in PSA", "orgName", org.ZendeskOrg.Name)
-			m.data.writeToOutput(warnYellowOutput("WARNING", fmt.Sprintf("Error: org not in PSA: %s", org.ZendeskOrg.Name)))
+			m.data.writeToOutput(warnYellowOutput("WARNING", fmt.Sprintf("org not in PSA: %s", org.ZendeskOrg.Name)))
 			m.orgsChecked++
 			m.orgsNotInPsa++
 			return nil

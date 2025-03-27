@@ -1,16 +1,22 @@
 package psa
 
 type Company struct {
-	Id           int        `json:"id,omitempty"`
-	Identifier   string     `json:"identifier,omitempty"`
-	Name         string     `json:"name,omitempty"`
-	AddressLine1 string     `json:"addressLine1,omitempty"`
-	AddressLine2 string     `json:"addressLine2,omitempty"`
-	City         string     `json:"city,omitempty"`
-	Zip          string     `json:"zip,omitempty"`
-	Country      *Country   `json:"country,omitempty"`
-	Territory    *Territory `json:"territory,omitempty"`
-	Site         *Site      `json:"site,omitempty"`
+	Id           int           `json:"id,omitempty"`
+	Identifier   string        `json:"identifier,omitempty"`
+	Name         string        `json:"name,omitempty"`
+	Types        []CompanyType `json:"types,omitempty"`
+	AddressLine1 string        `json:"addressLine1,omitempty"`
+	AddressLine2 string        `json:"addressLine2,omitempty"`
+	City         string        `json:"city,omitempty"`
+	Zip          string        `json:"zip,omitempty"`
+	Country      *Country      `json:"country,omitempty"`
+	Territory    *Territory    `json:"territory,omitempty"`
+	Site         *Site         `json:"site,omitempty"`
+}
+
+type CompanyType struct {
+	Id   int    `json:"id,omitempty"`
+	Name string `json:"name,omitempty"`
 }
 
 type ContactPostBody struct {

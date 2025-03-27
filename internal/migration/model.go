@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/psa"
 	"log/slog"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -239,13 +240,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmds = append(cmds, m.getUsersToMigrate(org))
 			}
 
-			return m, tea.Sequence(cmds...) // TODO: switch to batch when ready for speed
+			return m, tea.Batch(cmds...)
 		case migratingUsers:
 			for _, user := range m.data.UsersToMigrate {
 				cmds = append(cmds, m.migrateUser(user))
 			}
 
-			return m, tea.Sequence(cmds...) // TODO: switch to batch when ready for speed
+			return m, tea.Sequence(cmds...)
 		case gettingPsaTickets:
 			return m, m.getAlreadyMigrated()
 		case migratingTickets:
@@ -253,7 +254,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmds = append(cmds, m.runTicketMigration(org))
 			}
 
-			return m, tea.Sequence(cmds...) // TODO: switch to batch when ready for speed
+			return m, tea.Batch(cmds...)
 		}
 
 	}
@@ -367,7 +368,9 @@ func runSpinner(text string) string {
 
 func (m *Model) copyToClipboard(s string) tea.Cmd {
 	return func() tea.Msg {
-		if err := clipboard.WriteAll(s); err != nil {
+		re := regexp.MustCompile(`\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])`)
+		plaintext := re.ReplaceAllString(s, "")
+		if err := clipboard.WriteAll(plaintext); err != nil {
 			slog.Error("copying results to clipboard", "error", err)
 			m.data.writeToOutput(badRedOutput("ERROR", fmt.Errorf("couldn't copy results to clipboard: %w", err)))
 			return nil

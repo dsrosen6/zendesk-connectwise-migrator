@@ -47,6 +47,12 @@ type ZendeskConfig struct {
 	wantTagDateForm bool
 }
 
+type TagDetails struct {
+	Name      string `mapstructure:"name" json:"name"`
+	StartDate string `mapstructure:"start_date" json:"start_date"`
+	EndDate   string `mapstructure:"end_date" json:"end_date"`
+}
+
 type ConnectwiseConfig struct {
 	Creds              psa.Creds           `mapstructure:"api_creds" json:"api_creds"`
 	ClosedStatusId     int                 `mapstructure:"closed_status_id" json:"closed_status_id"`

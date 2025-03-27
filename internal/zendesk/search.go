@@ -117,6 +117,11 @@ func buildSearchQueryString(searchType SearchType, query SearchQuery) (string, e
 		if query.TicketCreatedBefore != (time.Time{}) {
 			qs += fmt.Sprintf(" created<%s", query.TicketCreatedBefore.Format("2006-01-02"))
 		}
+
+		if !query.GetOpenTickets {
+			qs += fmt.Sprintf(" status:closed status:solved")
+		}
+
 	}
 
 	return url.QueryEscape(qs), nil
