@@ -17,7 +17,8 @@ type Data struct {
 	SelectedOrgs   []*orgMigrationDetails
 	UsersToMigrate map[string]*userMigrationDetails
 
-	Output strings.Builder
+	CurrentMigratingOrg string
+	Output              strings.Builder
 }
 
 func (c *Client) newData() *Data {

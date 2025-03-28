@@ -13,6 +13,7 @@ import (
 
 func (m *Model) getUsersToMigrate(org *orgMigrationDetails) tea.Cmd {
 	return func() tea.Msg {
+		slog.Debug("getUsersToMigrate: called", "orgName", org.ZendeskOrg.Name)
 		users, err := m.client.ZendeskClient.GetOrganizationUsers(m.ctx, org.ZendeskOrg.Id)
 		if err != nil {
 			slog.Error("getting users for org", "orgName", org.ZendeskOrg.Name, "error", err)
@@ -22,8 +23,8 @@ func (m *Model) getUsersToMigrate(org *orgMigrationDetails) tea.Cmd {
 			return nil
 		}
 		slog.Info("got users for org", "orgName", org.ZendeskOrg.Name, "totalUsers", len(users))
-
 		m.usersToCheck += len(users)
+
 		for _, user := range users {
 			idString := strconv.Itoa(user.Id)
 			m.data.UsersToMigrate[idString] = &userMigrationDetails{ZendeskUser: &user, PsaCompany: org.PsaOrg}

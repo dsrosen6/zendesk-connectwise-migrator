@@ -25,6 +25,7 @@ type fatalErrMsg struct {
 
 func (m *Model) runTicketMigration(org *orgMigrationDetails) tea.Cmd {
 	return func() tea.Msg {
+		m.data.CurrentMigratingOrg = org.ZendeskOrg.Name
 		zTickets, err := m.getZendeskTickets(org)
 		if err != nil {
 			m.totalErrors++

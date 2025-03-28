@@ -35,6 +35,12 @@ type Links struct {
 	Next string `json:"next"`
 }
 
+type RateLimitErr struct{}
+
+func (r RateLimitErr) Error() string {
+	return "rate limit exceeded"
+}
+
 func NewClient(creds Creds, httpClient *http.Client) *Client {
 	creds.Username = fmt.Sprintf("%s/token", creds.Username)
 	return &Client{
@@ -66,16 +72,18 @@ func (c *Client) ApiRequest(ctx context.Context, method, url string, body io.Rea
 }
 
 func (c *Client) apiRequest(ctx context.Context, method, url string, body io.Reader, target interface{}) error {
+	slog.Debug("zendesk.apiRequest: called", "method", method, "url", url)
 	const maxRetries = 3
 	var retryAfter int
 
-	for attempt := 0; attempt <= maxRetries; attempt++ {
+	for attempt := 0; attempt < maxRetries; attempt++ {
 		if attempt > 0 {
-			slog.Debug("sending zendesk API request", "method", method, "url", url, "attempt", attempt)
+			slog.Debug("zendesk.apiRequest: making additional attempt", "method", method, "url", url, "attempt", attempt)
 		}
 
 		req, err := http.NewRequestWithContext(ctx, method, url, body)
 		if err != nil {
+			slog.Debug("zendesk.apiRequest: error creating request", "method", method, "url", url, "error", err)
 			return fmt.Errorf("an error occured creating the request: %w", err)
 		}
 
@@ -84,54 +92,64 @@ func (c *Client) apiRequest(ctx context.Context, method, url string, body io.Rea
 
 		res, err := c.httpClient.Do(req)
 		if err != nil {
+			slog.Debug("zendesk.apiRequest: error sending request", "method", method, "url", url, "error", err)
 			return fmt.Errorf("an error occured sending the request: %w", err)
 		}
 
-		if res.StatusCode == http.StatusOK || res.StatusCode == http.StatusCreated {
-			data, err := io.ReadAll(res.Body)
-			if err != nil {
-				return fmt.Errorf("an error occured reading the response body: %w", err)
-			}
-
-			if target != nil {
-				if err := json.Unmarshal(data, target); err != nil {
-					return fmt.Errorf("an error occured unmarshaling the response to JSON: %w", err)
-				}
-			}
-
-			return nil
-		}
-
-		if res.StatusCode == http.StatusTooManyRequests {
-			retryAfterHeader := res.Header.Get("Retry-After")
-
-			if retryAfterHeader != "" {
-				retryAfter, err = strconv.Atoi(retryAfterHeader)
+		closeErr := func() error {
+			defer res.Body.Close()
+			if res.StatusCode == http.StatusOK || res.StatusCode == http.StatusCreated {
+				data, err := io.ReadAll(res.Body)
 				if err != nil {
-					slog.Debug("failed to parse Retry-After header", "header", retryAfterHeader)
+					slog.Debug("zendesk.apiRequest: error reading response body", "error", err)
+					return fmt.Errorf("an error occured reading the response body: %w", err)
+				}
+
+				if target != nil {
+					if err := json.Unmarshal(data, target); err != nil {
+						slog.Debug("zendesk.apiRequest: error unmarshaling response", "data", string(data), "error", err)
+						return fmt.Errorf("an error occured unmarshaling the response to JSON: %w", err)
+					}
+				}
+
+				return nil
+			}
+
+			if res.StatusCode == http.StatusTooManyRequests {
+				retryAfterHeader := res.Header.Get("Retry-After")
+
+				if retryAfterHeader != "" {
+					retryAfter, err = strconv.Atoi(retryAfterHeader)
+					if err != nil {
+						slog.Debug("zendesk.apiRequest: error parsing Retry-After header", "headerValue", retryAfterHeader, "error", err)
+						retryAfter = 1
+					}
+
+				} else {
+					slog.Debug("zendesk.apiRequest: Retry-After header not set, defaulting to 1 second")
 					retryAfter = 1
 				}
 
-			} else {
-				slog.Debug("missing Retry-After header")
-				retryAfter = 1
+				slog.Debug("zendesk.apiRequest: rate limit exceeded, retrying after", "retryAfter", retryAfter, "attempt", attempt)
+				return RateLimitErr{}
 			}
-
-			slog.Debug("zendesk rate limit exceeded, retrying",
-				"retryAfter", retryAfter,
-				"totalRetries", fmt.Sprintf("%d/%d", attempt, maxRetries))
-		} else {
 			retryAfter = 5
-			slog.Debug("zendesk API request failed - waiting 5 seconds if retries remain", "statusCode", res.StatusCode,
-				"totalRetries", fmt.Sprintf("%d/%d", attempt, maxRetries))
+			slog.Debug("zendesk.apiRequest: received non-200 response", "method", method, "url", url, "statusCode", res.StatusCode)
+			return fmt.Errorf("received non-200 response: %s (status code: %d)", res.Status, res.StatusCode)
+		}()
+
+		if closeErr == nil {
+			return nil
 		}
 
-		err = res.Body.Close()
-		if err != nil {
-			return err
+		if !errors.As(closeErr, &RateLimitErr{}) {
+			slog.Debug("zendesk.apiRequest: non-rate limit error encountered", "error", closeErr)
+			return closeErr
 		}
+
 		time.Sleep(time.Duration(retryAfter) * time.Second)
 	}
 
+	slog.Debug("zendesk.apiRequest: max retries exceeded", "method", method, "url", url)
 	return fmt.Errorf("max retries exceeded")
 }

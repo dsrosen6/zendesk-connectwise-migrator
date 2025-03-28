@@ -36,6 +36,8 @@ func init() {
 	rootCmd.PersistentFlags().Bool("cutWarn", false, "don't show output of items with warnings")
 	rootCmd.PersistentFlags().Bool("cutError", false, "don't show output of items with errors")
 	rootCmd.PersistentFlags().Bool("onlyErrors", false, "only show output of items with errors")
+	rootCmd.PersistentFlags().Bool("stopAfterOrgs", false, "stop migration after getting orgs")
+	rootCmd.PersistentFlags().Bool("stopAfterUsers", false, "stop migration after getting users")
 }
 
 func parseFlags(cmd *cobra.Command) (migration.CliOptions, error) {
@@ -59,6 +61,16 @@ func parseFlags(cmd *cobra.Command) (migration.CliOptions, error) {
 		return migration.CliOptions{}, fmt.Errorf("getting only errors flag: %w", err)
 	}
 
+	stopAfterOrgs, err := cmd.Flags().GetBool("stopAfterOrgs")
+	if err != nil {
+		return migration.CliOptions{}, fmt.Errorf("getting stop after orgs flag: %w", err)
+	}
+
+	stopAfterUsers, err := cmd.Flags().GetBool("stopAfterUsers")
+	if err != nil {
+		return migration.CliOptions{}, fmt.Errorf("getting stop after users flag: %w", err)
+	}
+
 	if onlyErrors {
 		return migration.CliOptions{
 			Debug:              debug,
@@ -71,7 +83,7 @@ func parseFlags(cmd *cobra.Command) (migration.CliOptions, error) {
 				Error:    true,
 			},
 		}, nil
-		
+
 	} else {
 		cutNoAction, err := cmd.Flags().GetBool("cutNoAction")
 		if err != nil {
@@ -103,6 +115,8 @@ func parseFlags(cmd *cobra.Command) (migration.CliOptions, error) {
 				Warn:     !cutWarn,
 				Error:    !cutError,
 			},
+			StopAfterOrgs:  stopAfterOrgs,
+			StopAfterUsers: stopAfterUsers,
 		}, nil
 	}
 }

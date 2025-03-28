@@ -38,6 +38,8 @@ type CliOptions struct {
 	TicketLimit        int          `mapstructure:"ticket_limit" json:"ticket_limit"`
 	MigrateOpenTickets bool         `mapstructure:"migrate_open_tickets" json:"migrate_open_tickets"`
 	OutputLevels       OutputLevels `mapstructure:"output_levels" json:"output_levels"`
+	StopAfterOrgs      bool
+	StopAfterUsers     bool
 }
 
 type OutputLevels struct {

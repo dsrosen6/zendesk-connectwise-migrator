@@ -19,6 +19,7 @@ type Model struct {
 	client          *Client
 	data            *Data
 	form            *huh.Form
+	formComplete    bool
 	status          status
 	timeZone        *time.Location
 	allOrgsSelected bool
@@ -128,6 +129,7 @@ func newModel(ctx context.Context, client *Client) (*Model, error) {
 		data:     data,
 		status:   awaitingStart,
 		timeZone: loc,
+		spinner:  spnr,
 	}, nil
 }
 
@@ -233,7 +235,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch m.status {
 	case comparingOrgs:
 		if len(m.data.AllOrgs) == m.orgsChecked {
-			cmds = append(cmds, switchStatus(initOrgForm))
+			if m.client.Cfg.StopAfterOrgs {
+				slog.Info("stopping after org check as per configuration")
+				cmds = append(cmds, switchStatus(done))
+			} else {
+				cmds = append(cmds, switchStatus(initOrgForm))
+			}
 		}
 
 	case pickingOrgs:
@@ -244,7 +251,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.form = f
 		}
 
-		if m.form.State == huh.StateCompleted {
+		if m.form.State == huh.StateCompleted && !m.formComplete {
 			switch m.status {
 			case pickingOrgs:
 				if m.allOrgsSelected {
@@ -256,6 +263,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 
+				slog.Debug("form completed, selected orgs", "selectedOrgsCount", len(m.data.SelectedOrgs))
+				m.formComplete = true
 				cmds = append(cmds, switchStatus(gettingUsers))
 			}
 		}
@@ -267,8 +276,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case migratingUsers:
 		if len(m.data.UsersToMigrate) == m.usersMigrated+m.usersSkipped {
-			slog.Info("all users migrated, beginning ticket migration")
-			cmds = append(cmds, switchStatus(gettingPsaTickets))
+			if m.client.Cfg.StopAfterUsers {
+				slog.Info("stopping after user migration as per configuration")
+				cmds = append(cmds, switchStatus(done))
+			} else {
+				slog.Info("all users migrated, beginning ticket migration")
+				cmds = append(cmds, switchStatus(gettingPsaTickets))
+			}
 		}
 
 	case migratingTickets:
@@ -302,6 +316,8 @@ func (m *Model) View() string {
 		s += "Press the SPACE key to begin"
 	case pickingOrgs:
 		s += m.form.View()
+	case migratingTickets:
+		s += m.runSpinner(fmt.Sprintf("Migrating tickets for %s", m.data.CurrentMigratingOrg))
 	case done:
 		s += "Migration complete"
 	default:
