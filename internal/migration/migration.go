@@ -35,7 +35,7 @@ type Agent struct {
 	CwId      int    `mapstructure:"connectwise_member_id" json:"connectwise_member_id"`
 }
 
-func Run(debug bool) error {
+func Run(opts CliOptions) error {
 	ctx := context.Background()
 	dir, err := makeMigrationDir()
 	if err != nil {
@@ -47,11 +47,11 @@ func Run(debug bool) error {
 		return fmt.Errorf("opening log file: %w", err)
 	}
 
-	if err := setLogger(logFile, debug); err != nil {
+	if err := setLogger(logFile, opts.Debug); err != nil {
 		return fmt.Errorf("setting logger: %w", err)
 	}
 
-	client, err := runStartup(ctx, dir)
+	client, err := runStartup(ctx, dir, opts)
 	if err != nil {
 		slog.Error("running startup", "error", err)
 		return err
@@ -84,11 +84,18 @@ func makeMigrationDir() (string, error) {
 	return migrationDir, nil
 }
 
-func runStartup(ctx context.Context, dir string) (*Client, error) {
+func runStartup(ctx context.Context, dir string, opts CliOptions) (*Client, error) {
 	cfg, err := InitConfig(dir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize config: %w", err)
 	}
+
+	cfg.CliOptions = opts
+	viper.Set("ticket_limit", opts.TicketLimit)
+	viper.Set("migrate_open_tickets", opts.MigrateOpenTickets)
+	viper.Set("output_levels", opts.OutputLevels)
+
+	slog.Info("startup options", "opts", opts)
 
 	if err := cfg.validatePreClient(); err != nil {
 		return nil, fmt.Errorf("validating config: %w", err)

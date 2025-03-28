@@ -25,15 +25,19 @@ var (
 )
 
 type Config struct {
-	TicketLimit        int    `mapstructure:"ticket_limit" json:"ticket_limit"`
-	MigrateOpenTickets bool   `mapstructure:"migrate_open_tickets" json:"migrate_open_tickets"`
-	TimeZone           string `mapstructure:"time_zone" json:"time_zone"` // for timestamps in tickets, ie "America/Chicago" - if not entered in config, defaults to UTC
-
+	TimeZone      string                  `mapstructure:"time_zone" json:"time_zone"` // for timestamps in tickets, ie "America/Chicago" - if not entered in config, defaults to UTC
 	Zendesk       ZendeskConfig           `mapstructure:"zendesk" json:"zendesk"`
 	Connectwise   ConnectwiseConfig       `mapstructure:"connectwise" json:"connectwise"`
 	AgentMappings map[string]AgentMapping `mapstructure:"agent_mappings" json:"agent_mappings"`
 
-	OutputLevels OutputLevels `mapstructure:"output_levels" json:"output_levels"`
+	CliOptions
+}
+
+type CliOptions struct {
+	Debug              bool
+	TicketLimit        int          `mapstructure:"ticket_limit" json:"ticket_limit"`
+	MigrateOpenTickets bool         `mapstructure:"migrate_open_tickets" json:"migrate_open_tickets"`
+	OutputLevels       OutputLevels `mapstructure:"output_levels" json:"output_levels"`
 }
 
 type OutputLevels struct {

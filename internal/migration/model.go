@@ -159,8 +159,6 @@ func newModel(ctx context.Context, client *Client) (*Model, error) {
 	}
 
 	slog.Info("time zone set", "timeZone", loc.String())
-	slog.Info("migrate open tickets set to", "value", client.Cfg.MigrateOpenTickets)
-	slog.Info("output levels in config", "levels", client.Cfg.OutputLevels)
 
 	return &Model{
 		ctx:      ctx,
