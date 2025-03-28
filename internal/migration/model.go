@@ -12,21 +12,7 @@ import (
 	"github.com/dsrosen/zendesk-connectwise-migrator/internal/psa"
 	"log/slog"
 	"regexp"
-	"strings"
 	"time"
-)
-
-var (
-	spnr spinner.Model
-
-	// App Dimensions
-	windowWidth             int
-	windowHeight            int
-	mainHeaderHeight        int
-	mainFooterHeight        int
-	viewportDvdrHeight      int
-	verticalMarginHeight    int
-	verticalLeftForMainView int
 )
 
 type Model struct {
@@ -38,22 +24,11 @@ type Model struct {
 	timeZone        *time.Location
 	allOrgsSelected bool
 	viewport        viewport.Model
+	spinner         spinner.Model
 	statistics
 	viewState
+	dimensions
 	scrollManagement
-}
-
-type Data struct {
-	AllOrgs      map[string]*orgMigrationDetails
-	UsersInPsa   map[string]*userMigrationDetails
-	TicketsInPsa map[string]int
-
-	PsaInfo        PsaInfo
-	Tags           []tagDetails
-	SelectedOrgs   []*orgMigrationDetails
-	UsersToMigrate map[string]*userMigrationDetails
-
-	Output strings.Builder
 }
 
 type outputLevel string
@@ -101,6 +76,16 @@ type statistics struct {
 	totalErrors         int
 }
 
+type dimensions struct {
+	windowWidth             int
+	windowHeight            int
+	mainHeaderHeight        int
+	mainFooterHeight        int
+	viewportDvdrHeight      int
+	verticalMarginHeight    int
+	verticalLeftForMainView int
+}
+
 type PsaInfo struct {
 	Board                  *psa.Board
 	StatusOpen             *psa.Status
@@ -129,27 +114,14 @@ type scrollManagement struct {
 }
 
 func newModel(ctx context.Context, client *Client) (*Model, error) {
-	spnr = spinner.New()
+	spnr := spinner.New()
 	spnr.Spinner = spinner.Ellipsis
 	spnr.Style = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "236", Dark: "248"})
 
-	data := &Data{
-		AllOrgs:        make(map[string]*orgMigrationDetails),
-		UsersInPsa:     make(map[string]*userMigrationDetails),
-		TicketsInPsa:   make(map[string]int),
-		UsersToMigrate: make(map[string]*userMigrationDetails),
-	}
+	data := client.newData()
 
 	if client.Cfg.TicketLimit > 0 {
 		slog.Info("ticket test limit in config", "limit", client.Cfg.TicketLimit)
-	}
-
-	data.PsaInfo = PsaInfo{
-		Board:                  &psa.Board{Id: client.Cfg.Connectwise.DestinationBoardId},
-		StatusOpen:             &psa.Status{Id: client.Cfg.Connectwise.OpenStatusId},
-		StatusClosed:           &psa.Status{Id: client.Cfg.Connectwise.ClosedStatusId},
-		ZendeskTicketIdField:   &psa.CustomField{Id: client.Cfg.Connectwise.FieldIds.ZendeskTicketId},
-		ZendeskClosedDateField: &psa.CustomField{Id: client.Cfg.Connectwise.FieldIds.ZendeskClosedDate},
 	}
 
 	loc, err := client.getTimeZone()
@@ -185,7 +157,7 @@ func (c *Client) getTimeZone() (*time.Location, error) {
 }
 
 func (m *Model) Init() tea.Cmd {
-	return spnr.Tick
+	return m.spinner.Tick
 }
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -265,7 +237,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	spnr, cmd = spnr.Update(msg)
+	m.spinner, cmd = m.spinner.Update(msg)
 	cmds = append(cmds, cmd)
 
 	switch m.status {
@@ -331,7 +303,7 @@ func (m *Model) View() string {
 	}
 
 	if !m.ready {
-		return runSpinner("Initializing")
+		return m.runSpinner("Initializing")
 	}
 
 	var s string
@@ -343,7 +315,7 @@ func (m *Model) View() string {
 	case done:
 		s += "Migration complete"
 	default:
-		s += runSpinner(string(m.status))
+		s += m.runSpinner(string(m.status))
 	}
 
 	if m.status != awaitingStart && m.status != pickingOrgs {
@@ -358,18 +330,18 @@ func (m *Model) View() string {
 	}
 
 	mainView := lipgloss.NewStyle().
-		Width(windowWidth).
-		Height(verticalLeftForMainView).
+		Width(m.windowWidth).
+		Height(m.verticalLeftForMainView).
 		PaddingLeft(1).
 		Render(s)
 
-	views := []string{titleBar("Ticket Migration Utility"), mainView, viewportDivider(), m.viewport.View(), appFooter()}
+	views := []string{m.titleBar("Ticket Migration Utility"), mainView, m.viewportDivider(), m.viewport.View(), m.appFooter()}
 
 	return lipgloss.JoinVertical(lipgloss.Top, views...)
 }
 
-func runSpinner(text string) string {
-	return fmt.Sprintf("%s%s", text, spnr.View())
+func (m *Model) runSpinner(text string) string {
+	return fmt.Sprintf("%s%s", text, m.spinner.View())
 }
 
 func (m *Model) copyToClipboard(s string) tea.Cmd {

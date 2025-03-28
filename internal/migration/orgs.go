@@ -210,7 +210,7 @@ func (m *Model) orgSelectionForm() *huh.Form {
 				Options(m.orgOptions()...).
 				Value(&m.data.SelectedOrgs),
 		).WithHideFunc(func() bool { return m.allOrgsSelected == true }),
-	).WithHeight(verticalLeftForMainView).WithShowHelp(false).WithTheme(customFormTheme())
+	).WithHeight(m.verticalLeftForMainView).WithShowHelp(false).WithTheme(customFormTheme())
 }
 
 func (m *Model) orgOptions() []huh.Option[*orgMigrationDetails] {

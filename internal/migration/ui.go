@@ -57,22 +57,18 @@ func goodGreenOutput(label, output string) string {
 	return fmt.Sprintf("%s %s\n", textGreen(label), output)
 }
 
-func infoOutput(label, output string) string {
-	return fmt.Sprintf("%s %s\n", textNormalAdaptive(label), output)
+func (m *Model) viewportDivider() string {
+	return m.titleBar("Results")
 }
 
-func viewportDivider() string {
-	return titleBar("Results")
+func (m *Model) appFooter() string {
+	return m.titleBar("C: Copy Results | ESC: Exit")
 }
 
-func appFooter() string {
-	return titleBar("C: Copy Results | ESC: Exit")
-}
-
-func titleBar(t string) string {
+func (m *Model) titleBar(t string) string {
 	titleBox := titleStyle().Render(t)
 
-	dividerLength := windowWidth - lipgloss.Width(titleBox)
+	dividerLength := m.windowWidth - lipgloss.Width(titleBox)
 
 	return lipgloss.JoinHorizontal(lipgloss.Center, titleBox, line(dividerLength))
 }
@@ -109,20 +105,20 @@ func customKeyMap() *huh.KeyMap {
 
 func (m *Model) calculateDimensions(w, h int) tea.Cmd {
 	return func() tea.Msg {
-		windowWidth = w
-		windowHeight = h
-		mainHeaderHeight = lipgloss.Height(titleBar("Ticket Migration Utility"))
-		mainFooterHeight = lipgloss.Height(appFooter())
-		viewportDvdrHeight = lipgloss.Height(viewportDivider())
-		verticalMarginHeight = mainHeaderHeight + mainFooterHeight + viewportDvdrHeight
-		viewportHeight := (windowHeight - verticalMarginHeight) * 1 / 2
-		verticalLeftForMainView = windowHeight - verticalMarginHeight - viewportHeight
+		m.windowWidth = w
+		m.windowHeight = h
+		m.mainHeaderHeight = lipgloss.Height(m.titleBar("Ticket Migration Utility"))
+		m.mainFooterHeight = lipgloss.Height(m.appFooter())
+		m.viewportDvdrHeight = lipgloss.Height(m.viewportDivider())
+		m.verticalMarginHeight = m.mainHeaderHeight + m.mainFooterHeight + m.viewportDvdrHeight
+		viewportHeight := (m.windowHeight - m.verticalMarginHeight) * 1 / 2
+		m.verticalLeftForMainView = m.windowHeight - m.verticalMarginHeight - viewportHeight
 		slog.Debug("got calculateDimensionsMsg")
 
 		if !m.ready {
-			m.viewport = viewport.New(windowWidth, viewportHeight)
+			m.viewport = viewport.New(m.windowWidth, viewportHeight)
 		} else {
-			m.viewport.Width = windowWidth
+			m.viewport.Width = m.windowWidth
 			m.viewport.Height = viewportHeight
 		}
 
