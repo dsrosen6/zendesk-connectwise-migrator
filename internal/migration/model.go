@@ -9,7 +9,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/dsrosen/zendesk-connectwise-migrator/internal/psa"
 	"log/slog"
 	"regexp"
 	"time"
@@ -86,23 +85,6 @@ type dimensions struct {
 	verticalLeftForMainView int
 }
 
-type PsaInfo struct {
-	Board                  *psa.Board
-	StatusOpen             *psa.Status
-	StatusClosed           *psa.Status
-	ZendeskTicketIdField   *psa.CustomField
-	ZendeskClosedDateField *psa.CustomField
-}
-
-type timeConversionDetails struct {
-	startString string
-	endString   string
-
-	// fallback time strings, in case main entry is a blank string
-	startFallback string
-	endFallback   string
-}
-
 type viewState struct {
 	ready    bool
 	quitting bool
@@ -111,6 +93,14 @@ type viewState struct {
 type scrollManagement struct {
 	scrollOverride  bool
 	scrollCountDown bool
+}
+
+type apiErrMsg struct {
+	Err error
+}
+
+type timeConvertErrMsg struct {
+	Err error
 }
 
 func newModel(ctx context.Context, client *Client) (*Model, error) {
@@ -340,10 +330,6 @@ func (m *Model) View() string {
 	return lipgloss.JoinVertical(lipgloss.Top, views...)
 }
 
-func (m *Model) runSpinner(text string) string {
-	return fmt.Sprintf("%s%s", text, m.spinner.View())
-}
-
 func (m *Model) copyToClipboard(s string) tea.Cmd {
 	return func() tea.Msg {
 		re := regexp.MustCompile(`\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])`)
@@ -356,36 +342,5 @@ func (m *Model) copyToClipboard(s string) tea.Cmd {
 		slog.Debug("copied result to clipboard")
 		m.writeToOutput(goodGreenOutput("SUCCESS", "copied results to clipboard"), createdOutput)
 		return nil
-	}
-}
-
-func (m *Model) writeToOutput(s string, level outputLevel) {
-	switch level {
-	case noActionOutput:
-		if m.client.Cfg.OutputLevels.NoAction {
-			m.data.Output.WriteString(s)
-		}
-	case createdOutput:
-		if m.client.Cfg.OutputLevels.Created {
-			m.data.Output.WriteString(s)
-		}
-	case warnOutput:
-		if m.client.Cfg.OutputLevels.Warn {
-			m.data.Output.WriteString(s)
-		}
-	case errOutput:
-		if m.client.Cfg.OutputLevels.Error {
-			m.data.Output.WriteString(s)
-		}
-	}
-}
-
-func (m *Model) setAutoScrollBehavior() {
-	if m.viewport.AtBottom() {
-		m.scrollOverride = false
-	}
-
-	if !m.scrollOverride {
-		m.viewport.GotoBottom()
 	}
 }

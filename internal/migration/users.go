@@ -11,15 +11,6 @@ import (
 	"strings"
 )
 
-type userMigrationDetails struct {
-	ZendeskUser  *zendesk.User `json:"zendesk_user"`
-	PsaContact   *psa.Contact  `json:"psa_contact"`
-	PsaCompany   *psa.Company
-	UserMigrated bool `json:"migrated"`
-
-	HasTickets bool `json:"has_tickets"`
-}
-
 func (m *Model) getUsersToMigrate(org *orgMigrationDetails) tea.Cmd {
 	return func() tea.Msg {
 		users, err := m.client.ZendeskClient.GetOrganizationUsers(m.ctx, org.ZendeskOrg.Id)

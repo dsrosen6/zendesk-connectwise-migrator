@@ -124,3 +124,38 @@ func (m *Model) calculateDimensions(w, h int) tea.Cmd {
 		return nil
 	}
 }
+
+func (m *Model) runSpinner(text string) string {
+	return fmt.Sprintf("%s%s", text, m.spinner.View())
+}
+
+func (m *Model) setAutoScrollBehavior() {
+	if m.viewport.AtBottom() {
+		m.scrollOverride = false
+	}
+
+	if !m.scrollOverride {
+		m.viewport.GotoBottom()
+	}
+}
+
+func (m *Model) writeToOutput(s string, level outputLevel) {
+	switch level {
+	case noActionOutput:
+		if m.client.Cfg.OutputLevels.NoAction {
+			m.data.Output.WriteString(s)
+		}
+	case createdOutput:
+		if m.client.Cfg.OutputLevels.Created {
+			m.data.Output.WriteString(s)
+		}
+	case warnOutput:
+		if m.client.Cfg.OutputLevels.Warn {
+			m.data.Output.WriteString(s)
+		}
+	case errOutput:
+		if m.client.Cfg.OutputLevels.Error {
+			m.data.Output.WriteString(s)
+		}
+	}
+}

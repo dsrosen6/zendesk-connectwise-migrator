@@ -12,21 +12,13 @@ import (
 	"time"
 )
 
-type orgMigrationDetails struct {
-	ZendeskOrg *zendesk.Organization `json:"zendesk_org"`
-	PsaOrg     *psa.Company          `json:"psa_org"`
+type timeConversionDetails struct {
+	startString string
+	endString   string
 
-	Tag        *tagDetails `json:"zendesk_tag"`
-	HasTickets bool        `json:"has_tickets"`
-	Migrated   bool        `json:"org_migrated"`
-
-	MigrationSelected bool `json:"migration_selected"`
-}
-
-type tagDetails struct {
-	Name      string    `json:"name"`
-	StartDate time.Time `json:"start_date"`
-	EndDate   time.Time `json:"end_date"`
+	// fallback time strings, in case main entry is a blank string
+	startFallback string
+	endFallback   string
 }
 
 func (m *Model) getTagDetails() tea.Cmd {

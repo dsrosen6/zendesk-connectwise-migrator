@@ -29,12 +29,6 @@ type Client struct {
 	Cfg           *Config
 }
 
-type Agent struct {
-	Name      string `mapstructure:"name" json:"name"`
-	ZendeskId int    `mapstructure:"zendesk_user_id" json:"zendesk_user_id"`
-	CwId      int    `mapstructure:"connectwise_member_id" json:"connectwise_member_id"`
-}
-
 func Run(opts CliOptions) error {
 	ctx := context.Background()
 	dir, err := makeMigrationDir()
