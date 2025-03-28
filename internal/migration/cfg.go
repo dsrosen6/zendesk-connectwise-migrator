@@ -53,11 +53,6 @@ type ZendeskConfig struct {
 	FieldIds        ZendeskFieldIds `mapstructure:"field_ids" json:"field_ids"`
 	MasterStartDate string          `mapstructure:"start_date" json:"start_date"`
 	MasterEndDate   string          `mapstructure:"end_date" json:"end_date"`
-
-	// temporary values to assist with config forms - they do not get written to the config file.
-	tempTagNames    []string
-	tempTagsString  string
-	wantTagDateForm bool
 }
 
 type TagDetails struct {
@@ -73,9 +68,6 @@ type ConnectwiseConfig struct {
 	TicketType         int                 `mapstructure:"ticket_type" json:"ticket_type"`
 	DestinationBoardId int                 `mapstructure:"destination_board_id" json:"destination_board_id"`
 	FieldIds           ConnectwiseFieldIds `mapstructure:"field_ids" json:"field_ids"`
-
-	// temporary values to assist with config forms - they do not get written to the config file.
-	tempCwTagString string
 }
 
 type ZendeskFieldIds struct {

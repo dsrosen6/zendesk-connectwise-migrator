@@ -35,12 +35,6 @@ func textGreen(s string) string {
 	return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("6")).Render(s)
 }
 
-func textNormalAdaptive(s string) string {
-	return lipgloss.NewStyle().Bold(true).
-		Foreground(lipgloss.AdaptiveColor{Light: "236", Dark: "247"}).
-		Render(s)
-}
-
 func badRedOutput(label string, err error) string {
 	return fmt.Sprintf("%s %s\n", textRed(label), err)
 }

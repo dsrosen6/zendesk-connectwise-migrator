@@ -7,12 +7,6 @@ import (
 	"fmt"
 )
 
-type TicketFieldsResp struct {
-	TicketFields []TicketField `json:"ticket_fields"`
-	Meta         `json:"meta"`
-	Links        `json:"links"`
-}
-
 type UserFieldsResp struct {
 	UserFields []UserField `json:"user_fields"`
 	Meta       `json:"meta"`
@@ -25,24 +19,12 @@ type OrganizationFieldsResp struct {
 	Links              `json:"links"`
 }
 
-type PostTicketField struct {
-	TicketField TicketField `json:"ticket_field"`
-}
-
 type PostUserField struct {
 	UserField UserField `json:"user_field"`
 }
 
 type PostOrganizationField struct {
 	OrganizationField OrganizationField `json:"organization_field"`
-}
-
-type TicketField struct {
-	Id               int64  `json:"id"`
-	Type             string `json:"type"`
-	Title            string `json:"title"`
-	AgentDescription string `json:"agent_description"`
-	Active           bool   `json:"active"`
 }
 
 type UserField struct {
@@ -61,71 +43,6 @@ type OrganizationField struct {
 	Title       string `json:"title"`
 	Description string `json:"description"`
 	Active      bool   `json:"active"`
-}
-
-func (c *Client) PostTicketField(ctx context.Context, fieldType, title, description string) (*TicketField, error) {
-	f := &PostTicketField{
-		TicketField: TicketField{
-			Type:             fieldType,
-			Title:            title,
-			AgentDescription: description,
-			Active:           true,
-		},
-	}
-
-	fieldBytes, err := json.Marshal(f)
-	if err != nil {
-		return nil, fmt.Errorf("marshaling ticket field to json: %w", err)
-	}
-	body := bytes.NewReader(fieldBytes)
-
-	u := fmt.Sprintf("%s/ticket_fields", c.baseUrl)
-	r := &PostTicketField{}
-
-	if err := c.ApiRequest(ctx, "POST", u, body, r); err != nil {
-		return nil, err
-	}
-
-	return &r.TicketField, nil
-}
-
-func (c *Client) GetTicketFieldByTitle(ctx context.Context, title string) (*TicketField, error) {
-	fields, err := c.GetTicketFields(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, field := range fields {
-		if field.Title == title {
-			return &field, nil
-		}
-	}
-
-	return nil, fmt.Errorf("ticket field with title %s not found", title)
-}
-
-func (c *Client) GetTicketFields(ctx context.Context) ([]TicketField, error) {
-	initialUrl := fmt.Sprintf("%s/ticket_fields?page[size]=100", c.baseUrl)
-	allFields := &TicketFieldsResp{}
-	currentPage := &TicketFieldsResp{}
-
-	if err := c.ApiRequest(ctx, "GET", initialUrl, nil, &currentPage); err != nil {
-		return nil, fmt.Errorf("an error occured getting the ticket fields: %w", err)
-	}
-
-	allFields.TicketFields = append(allFields.TicketFields, currentPage.TicketFields...)
-
-	for currentPage.Meta.HasMore {
-		nextPage := &TicketFieldsResp{}
-		if err := c.ApiRequest(ctx, "GET", currentPage.Links.Next, nil, &nextPage); err != nil {
-			return nil, fmt.Errorf("an error occured getting the ticket fields: %w", err)
-		}
-
-		allFields.TicketFields = append(allFields.TicketFields, nextPage.TicketFields...)
-		currentPage = nextPage
-	}
-
-	return allFields.TicketFields, nil
 }
 
 func (c *Client) PostUserField(ctx context.Context, fieldType, key, title, description string) (*UserField, error) {

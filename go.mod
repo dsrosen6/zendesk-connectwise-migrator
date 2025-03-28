@@ -4,22 +4,23 @@ go 1.24.0
 
 require (
 	github.com/atotto/clipboard v0.1.4
-	github.com/charmbracelet/bubbles v0.20.0
+	github.com/charmbracelet/bubbles v0.20.1-0.20250320170029-54f28b650198
 	github.com/charmbracelet/bubbletea v1.3.4
 	github.com/charmbracelet/huh v0.6.1-0.20250307163404-7a717414e37a
-	github.com/charmbracelet/huh/spinner v0.0.0-20250315225456-0761ac7eb2e8
+	github.com/charmbracelet/huh/spinner v0.0.0-20250327021907-684a9cf11922
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/spf13/cobra v1.9.1
-	github.com/spf13/viper v1.20.0
+	github.com/spf13/viper v1.20.1
+	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 )
 
 require (
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/catppuccin/go v0.3.0 // indirect
-	github.com/charmbracelet/colorprofile v0.2.3-0.20250311203215-f60798e515dc // indirect
+	github.com/charmbracelet/colorprofile v0.3.0 // indirect
 	github.com/charmbracelet/x/ansi v0.8.0 // indirect
 	github.com/charmbracelet/x/cellbuf v0.0.13 // indirect
-	github.com/charmbracelet/x/exp/strings v0.0.0-20250313150240-c09addb0e197 // indirect
+	github.com/charmbracelet/x/exp/strings v0.0.0-20250327172914-2fdc97757edf // indirect
 	github.com/charmbracelet/x/term v0.2.1 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f // indirect
@@ -36,7 +37,7 @@ require (
 	github.com/muesli/termenv v0.16.0 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.3 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
-	github.com/sagikazarmark/locafero v0.8.0 // indirect
+	github.com/sagikazarmark/locafero v0.9.0 // indirect
 	github.com/sourcegraph/conc v0.3.0 // indirect
 	github.com/spf13/afero v1.14.0 // indirect
 	github.com/spf13/cast v1.7.1 // indirect
@@ -48,6 +49,5 @@ require (
 	golang.org/x/sync v0.12.0 // indirect
 	golang.org/x/sys v0.31.0 // indirect
 	golang.org/x/text v0.23.0 // indirect
-	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

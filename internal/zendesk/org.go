@@ -5,39 +5,19 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"time"
 )
 
 type OrgSearchResp struct {
 	Organizations []Organization `json:"results"`
 	NextPage      string         `json:"next_page"`
-	PreviousPage  string         `json:"previous_page"`
-	Count         int            `json:"count"`
-}
-
-type OrgBody struct {
-	Organization *Organization `json:"organization"`
 }
 
 type Organization struct {
-	Url                string             `json:"url"`
-	Id                 int64              `json:"id"`
-	Name               string             `json:"name"`
-	SharedTickets      bool               `json:"shared_tickets"`
-	SharedComments     bool               `json:"shared_comments"`
-	ExternalId         interface{}        `json:"external_id"`
-	CreatedAt          time.Time          `json:"created_at"`
-	UpdatedAt          time.Time          `json:"updated_at"`
-	DomainNames        []string           `json:"domain_names"`
-	Details            string             `json:"details"`
-	Notes              string             `json:"notes"`
-	GroupId            interface{}        `json:"group_id"`
-	Tags               []string           `json:"tags"`
-	OrganizationFields OrganizationFields `json:"organization_fields"`
-}
-
-type OrganizationFields struct {
-	PSACompanyId int64 `json:"psa_company"`
+	Id                 int64  `json:"id"`
+	Name               string `json:"name"`
+	OrganizationFields struct {
+		PSACompanyId int64 `json:"psa_company"`
+	} `json:"organization_fields"`
 }
 
 func (c *Client) GetOrganizationsWithQuery(ctx context.Context, q SearchQuery) ([]Organization, error) {
@@ -79,9 +59,9 @@ func (c *Client) GetOrganization(ctx context.Context, orgId int64) (Organization
 func (c *Client) UpdateOrganization(ctx context.Context, org *Organization) (*Organization, error) {
 	u := fmt.Sprintf("%s/organizations/%d", c.baseUrl, org.Id)
 
-	b := &OrgBody{
-		Organization: org,
-	}
+	b := &struct {
+		Organization *Organization `json:"organization"`
+	}{Organization: org}
 
 	jsonBytes, err := json.Marshal(b)
 	if err != nil {

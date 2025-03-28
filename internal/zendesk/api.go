@@ -28,6 +28,13 @@ type Creds struct {
 	Subdomain string `mapstructure:"subdomain" json:"subdomain"`
 }
 
+type Meta struct {
+	HasMore bool `json:"has_more"`
+}
+type Links struct {
+	Next string `json:"next"`
+}
+
 func NewClient(creds Creds, httpClient *http.Client) *Client {
 	creds.Username = fmt.Sprintf("%s/token", creds.Username)
 	return &Client{
@@ -66,7 +73,7 @@ func (c *Client) apiRequest(ctx context.Context, method, url string, body io.Rea
 		if attempt > 0 {
 			slog.Debug("sending zendesk API request", "method", method, "url", url, "attempt", attempt)
 		}
-		
+
 		req, err := http.NewRequestWithContext(ctx, method, url, body)
 		if err != nil {
 			return fmt.Errorf("an error occured creating the request: %w", err)
