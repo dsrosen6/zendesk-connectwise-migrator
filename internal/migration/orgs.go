@@ -109,7 +109,7 @@ func (m *Model) checkOrg(org *orgMigrationDetails) tea.Cmd {
 		tickets, err := m.client.ZendeskClient.GetTicketsWithQuery(m.ctx, q, 20, 1)
 		if err != nil {
 			slog.Error("getting tickets for org", "orgName", org.ZendeskOrg.Name, "error", err)
-			m.writeToOutput(badRedOutput("ERROR", fmt.Sprintf("couldn't get tickets for org %s", org.ZendeskOrg.Name)), errOutput)
+			m.writeToOutput(badRedOutput("ERROR", fmt.Sprintf("couldn't get tickets for org %s: %s", org.ZendeskOrg.Name, err)), errOutput)
 			m.orgsChecked++
 			return nil
 		}
@@ -132,14 +132,13 @@ func (m *Model) checkOrg(org *orgMigrationDetails) tea.Cmd {
 
 		if err := m.updateCompanyFieldValue(org); err != nil {
 			slog.Error("updating company field value in zendesk", "orgName", org.ZendeskOrg.Name, "zendeskOrgId", org.ZendeskOrg.Id, "error", err)
-			m.writeToOutput(badRedOutput("ERROR", fmt.Sprintf("couldn't zendesk company field value for org %s", org.ZendeskOrg.Name)), errOutput)
+			m.writeToOutput(badRedOutput("ERROR", fmt.Sprintf("couldn't update PSA company field value for org %s: %s", org.ZendeskOrg.Name, err)), errOutput)
 			m.orgsChecked++
 			return nil
 		}
 
 		if org.PsaOrg != nil && org.ZendeskOrg.OrganizationFields.PSACompanyId == int64(org.PsaOrg.Id) {
 			slog.Info("org ready for migration", "orgName", org.ZendeskOrg.Name, "zendeskOrgId", org.ZendeskOrg.Id)
-			m.writeToOutput(goodBlueOutput("NO ACTION", fmt.Sprintf("Org is ready for migration: %s", org.ZendeskOrg.Name)), noActionOutput)
 			m.orgsChecked++
 			m.orgsMigrated++
 			org.Migrated = true

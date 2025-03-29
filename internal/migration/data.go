@@ -8,9 +8,10 @@ import (
 )
 
 type Data struct {
-	AllOrgs      map[string]*orgMigrationDetails
-	UsersInPsa   map[string]*userMigrationDetails
-	TicketsInPsa map[string]int
+	AllOrgs       map[string]*orgMigrationDetails
+	UsersInPsa    map[string]*userMigrationDetails
+	ExternalUsers map[string]*zendesk.User
+	TicketsInPsa  map[string]int
 
 	PsaInfo        PsaInfo
 	Tags           []tagDetails
@@ -24,8 +25,10 @@ func (c *Client) newData() *Data {
 	return &Data{
 		AllOrgs:        make(map[string]*orgMigrationDetails),
 		UsersInPsa:     make(map[string]*userMigrationDetails),
+		ExternalUsers:  make(map[string]*zendesk.User),
 		TicketsInPsa:   make(map[string]int),
 		UsersToMigrate: make(map[string]*userMigrationDetails),
+
 		PsaInfo: PsaInfo{
 			Board:                  &psa.Board{Id: c.Cfg.Connectwise.DestinationBoardId},
 			StatusOpen:             &psa.Status{Id: c.Cfg.Connectwise.OpenStatusId},

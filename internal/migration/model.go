@@ -14,6 +14,22 @@ import (
 	"time"
 )
 
+func welcomeText() string {
+	return fmt.Sprintf(`
+This utility will copy all users and tickets from Zendesk to ConnectWise PSA.
+
+Custom fields will be updated in both systems to reflect the status of each item; if you run it again, it will only copy new items.
+
+It is recommended to make your terminal as big as possible to see all output, as it will overflow horizontally in the below "Results" section. For full output, press %s to copy to clipboard.
+
+If you exit in the middle of a migration, there may be incomplete tickets - %s
+
+Press %s to select organizations and begin the migration. For more options, see the README.
+`, textBlue("C"),
+		textYellow("you will need to delete these before running the utility again."),
+		textBlue("SPACE"))
+}
+
 type Model struct {
 	ctx                 context.Context
 	client              *Client
@@ -87,8 +103,10 @@ type statistics struct {
 	orgsMigrated        int
 	orgsCheckedForUsers int
 	usersProcessed      int
+	newUsersCreated     int
 	ticketsToProcess    int
 	ticketsProcessed    int
+	newTicketsCreated   int
 	ticketOrgsProcessed int
 
 	userMigrationErrors   int
@@ -247,6 +265,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			return m, tea.Sequence(cmds...)
 		}
+
+	case fatalErrMsg:
+		slog.Error("fatal error", "error", msg.Err)
+		cmds = append(cmds, switchStatus(done))
 	}
 
 	m.spinner, cmd = m.spinner.Update(msg)
@@ -333,7 +355,7 @@ func (m *Model) View() string {
 	var s string
 	switch m.status {
 	case awaitingStart:
-		s += "Press the SPACE key to begin"
+		s += welcomeText()
 	case comparingOrgs:
 		s += m.runSpinner(fmt.Sprintf("Checking organizations (%d/%d)", m.orgsChecked, len(m.data.AllOrgs)))
 	case gettingUsers:
@@ -354,20 +376,24 @@ func (m *Model) View() string {
 			s += m.runSpinner("Starting ticket migration")
 		}
 	case done:
-		s += "Migration complete"
+		s += "Migration complete - press ESC to exit.\n\nTo run the migration again, exit and run the utility again."
 	default:
 		s += m.runSpinner(string(m.status))
 	}
 
 	if m.status != awaitingStart && m.status != pickingOrgs {
 		s += fmt.Sprintf("\n\nUsers Processed: %d\n"+
+			"New Users Created: %d\n"+
 			"Tickets Processed: %d\n"+
+			"New Tickets Created: %d\n"+
 			"Orgs Complete: %d\n"+
 			"Orgs Not in PSA: %d\n"+
 			"User Migration Errors: %d\n"+
 			"Ticket Migration Errors: %d\n",
 			m.usersProcessed,
+			m.newUsersCreated,
 			m.ticketsProcessed,
+			m.newTicketsCreated,
 			m.ticketOrgsProcessed,
 			m.orgsNotInPsa,
 			m.userMigrationErrors,

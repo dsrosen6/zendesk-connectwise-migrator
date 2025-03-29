@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/url"
 )
 
@@ -65,6 +66,7 @@ func (c *Client) PostTicket(ctx context.Context, ticket *Ticket) (*Ticket, error
 	u := fmt.Sprintf("%s/service/tickets", baseUrl)
 
 	ticketBytes, err := json.Marshal(ticket)
+	slog.Debug("zendesk.PostTicket: body", "body", string(ticketBytes))
 	if err != nil {
 		return nil, fmt.Errorf("marshaling the ticket to json: %w", err)
 	}
