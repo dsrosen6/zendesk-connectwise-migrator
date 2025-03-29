@@ -35,8 +35,8 @@ func textGreen(s string) string {
 	return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("6")).Render(s)
 }
 
-func badRedOutput(label string, err error) string {
-	return fmt.Sprintf("%s %s\n", textRed(label), err)
+func badRedOutput(label string, output string) string {
+	return fmt.Sprintf("%s %s\n", textRed(label), output)
 }
 
 func warnYellowOutput(label, output string) string {

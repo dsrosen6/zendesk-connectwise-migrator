@@ -17,13 +17,12 @@ func (m *Model) getUsersToMigrate(org *orgMigrationDetails) tea.Cmd {
 		users, err := m.client.ZendeskClient.GetOrganizationUsers(m.ctx, org.ZendeskOrg.Id)
 		if err != nil {
 			slog.Error("getting users for org", "orgName", org.ZendeskOrg.Name, "error", err)
-			m.writeToOutput(badRedOutput("ERROR", fmt.Errorf("couldn't get users for org %s: %v", org.ZendeskOrg.Name, err)), errOutput)
+			m.writeToOutput(badRedOutput("ERROR", fmt.Sprintf("couldn't get users for org %s", org.ZendeskOrg.Name)), errOutput)
 			m.orgsCheckedForUsers++
-			m.totalErrors++
+			m.userMigrationErrors++
 			return nil
 		}
 		slog.Info("got users for org", "orgName", org.ZendeskOrg.Name, "totalUsers", len(users))
-		m.usersToCheck += len(users)
 
 		for _, user := range users {
 			idString := strconv.Itoa(user.Id)
@@ -37,11 +36,10 @@ func (m *Model) getUsersToMigrate(org *orgMigrationDetails) tea.Cmd {
 
 func (m *Model) migrateUser(user *userMigrationDetails) tea.Cmd {
 	return func() tea.Msg {
-
 		if user.ZendeskUser.Email == "" {
 			slog.Warn("zendesk user has no email address - skipping", "userName", user.ZendeskUser.Name)
 			m.writeToOutput(warnYellowOutput("WARN", fmt.Sprintf("user has no email address, skipping migration: %s", user.ZendeskUser.Name)), warnOutput)
-			m.usersSkipped++
+			m.usersProcessed++
 			return nil
 		}
 
@@ -54,9 +52,9 @@ func (m *Model) migrateUser(user *userMigrationDetails) tea.Cmd {
 				user.PsaContact, err = m.createPsaContact(user)
 				if err != nil {
 					slog.Error("creating user", "userEmail", user.ZendeskUser.Email, "zendeskUserId", user.ZendeskUser.Id, "error", err)
-					m.writeToOutput(badRedOutput("ERROR", fmt.Errorf("creating user %s: %v", user.ZendeskUser.Email, err)), errOutput)
-					m.usersSkipped++
-					m.totalErrors++
+					m.writeToOutput(badRedOutput("ERROR", fmt.Sprintf("creating user %s", user.ZendeskUser.Email)), errOutput)
+					m.usersProcessed++
+					m.userMigrationErrors++
 					return nil
 				} else {
 					slog.Debug("created new psa user", "userName", user.ZendeskUser.Email, "psaContactId", user.PsaContact.Id)
@@ -64,9 +62,9 @@ func (m *Model) migrateUser(user *userMigrationDetails) tea.Cmd {
 
 			} else {
 				slog.Error("matching zendesk user to psa user", "userEmail", user.ZendeskUser.Email, "zendeskUserId", user.ZendeskUser.Id, "error", err)
-				m.writeToOutput(badRedOutput("ERROR", fmt.Errorf("matching zendesk user to psa user %s: %v", user.ZendeskUser.Email, err)), errOutput)
-				m.usersSkipped++
-				m.totalErrors++
+				m.writeToOutput(badRedOutput("ERROR", fmt.Sprintf("matching zendesk user to psa user %s", user.ZendeskUser.Email)), errOutput)
+				m.usersProcessed++
+				m.userMigrationErrors++
 				return nil
 			}
 
@@ -77,22 +75,22 @@ func (m *Model) migrateUser(user *userMigrationDetails) tea.Cmd {
 		if user.ZendeskUser.UserFields.PSAContactId != user.PsaContact.Id {
 			if err := m.updateContactFieldValue(user); err != nil {
 				slog.Error("updating user contact field value in zendesk", "userEmail", user.ZendeskUser.Email, "zendeskUserId", user.ZendeskUser.Id, "psaContactId", user.PsaContact.Id, "error", err)
-				m.writeToOutput(badRedOutput("ERROR", fmt.Errorf("updating contact field in zendesk for %s: %v", user.ZendeskUser.Email, err)), errOutput)
-				m.usersSkipped++
-				m.totalErrors++
+				m.writeToOutput(badRedOutput("ERROR", fmt.Sprintf("updating contact field in zendesk for %s", user.ZendeskUser.Email)), errOutput)
+				m.usersProcessed++
+				m.userMigrationErrors++
 				return nil
 			}
 
 			slog.Info("user migrated", "userEmail", user.ZendeskUser.Email, "psaContactId", user.PsaContact.Id)
 			m.writeToOutput(goodGreenOutput("SUCCESS", fmt.Sprintf("User fully migrated: %s", user.ZendeskUser.Email)), createdOutput)
 			m.data.UsersInPsa[strconv.Itoa(user.ZendeskUser.Id)] = user
-			m.usersMigrated++
+			m.usersProcessed++
 			return nil
 
 		} else {
 			m.writeToOutput(goodBlueOutput("NO ACTION", fmt.Sprintf("user already existing in PSA: %s", user.ZendeskUser.Email)), noActionOutput)
 			m.data.UsersInPsa[strconv.Itoa(user.ZendeskUser.Id)] = user
-			m.usersMigrated++
+			m.usersProcessed++
 			return nil
 		}
 	}

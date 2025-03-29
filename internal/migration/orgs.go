@@ -109,9 +109,8 @@ func (m *Model) checkOrg(org *orgMigrationDetails) tea.Cmd {
 		tickets, err := m.client.ZendeskClient.GetTicketsWithQuery(m.ctx, q, 20, 1)
 		if err != nil {
 			slog.Error("getting tickets for org", "orgName", org.ZendeskOrg.Name, "error", err)
-			m.writeToOutput(badRedOutput("ERROR", fmt.Errorf("couldn't get tickets for org %s: %w", org.ZendeskOrg.Name, err)), errOutput)
+			m.writeToOutput(badRedOutput("ERROR", fmt.Sprintf("couldn't get tickets for org %s", org.ZendeskOrg.Name)), errOutput)
 			m.orgsChecked++
-			m.totalErrors++
 			return nil
 		}
 
@@ -133,9 +132,8 @@ func (m *Model) checkOrg(org *orgMigrationDetails) tea.Cmd {
 
 		if err := m.updateCompanyFieldValue(org); err != nil {
 			slog.Error("updating company field value in zendesk", "orgName", org.ZendeskOrg.Name, "zendeskOrgId", org.ZendeskOrg.Id, "error", err)
-			m.writeToOutput(badRedOutput("ERROR", fmt.Errorf("couldn't zendesk company field value for org %s: %w", org.ZendeskOrg.Name, err)), errOutput)
+			m.writeToOutput(badRedOutput("ERROR", fmt.Sprintf("couldn't zendesk company field value for org %s", org.ZendeskOrg.Name)), errOutput)
 			m.orgsChecked++
-			m.totalErrors++
 			return nil
 		}
 

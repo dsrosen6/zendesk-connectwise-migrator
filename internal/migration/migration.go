@@ -111,7 +111,9 @@ func runStartup(ctx context.Context, dir string, opts CliOptions) (*Client, erro
 }
 
 func newClient(zendeskCreds zendesk.Creds, cwCreds psa.Creds, cfg *Config) *Client {
-	httpClient := http.DefaultClient
+	httpClient := &http.Client{
+		Timeout: 30 * time.Second,
+	}
 
 	return &Client{
 		ZendeskClient: zendesk.NewClient(zendeskCreds, httpClient),

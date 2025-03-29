@@ -36,7 +36,7 @@ type Comment struct {
 	Via       struct {
 		Source struct {
 			To struct {
-				EmailCcs []any
+				EmailCcs []any `json:"email_ccs"`
 			} `json:"to"`
 		} `json:"source"`
 	} `json:"via"`

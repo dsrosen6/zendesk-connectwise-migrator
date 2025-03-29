@@ -156,6 +156,7 @@ func (c *Client) apiRequest(ctx context.Context, method, url string, body io.Rea
 		}()
 
 		if err == nil {
+			slog.Debug("psa.apiRequest: request successful", "method", method, "url", url)
 			return *p, nil
 		}
 

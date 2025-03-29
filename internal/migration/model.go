@@ -15,21 +15,40 @@ import (
 )
 
 type Model struct {
-	ctx             context.Context
-	client          *Client
-	data            *Data
-	form            *huh.Form
-	formComplete    bool
-	status          status
-	timeZone        *time.Location
-	allOrgsSelected bool
-	viewport        viewport.Model
-	spinner         spinner.Model
+	ctx                 context.Context
+	client              *Client
+	data                *Data
+	form                *huh.Form
+	formComplete        bool
+	status              status
+	timeZone            *time.Location
+	allOrgsSelected     bool
+	viewport            viewport.Model
+	spinner             spinner.Model
+	currentOrgMigration *currentOrgDetails
 	statistics
 	viewState
 	dimensions
 	scrollManagement
 }
+
+type currentOrgDetails struct {
+	orgName          string
+	status           ticketStatus
+	ticketsToProcess int
+	ticketsProcessed int
+}
+
+func newCurrentOrgDetails(orgName string, status ticketStatus) *currentOrgDetails {
+	return &currentOrgDetails{orgName: orgName, status: status}
+}
+
+type ticketStatus string
+
+const (
+	ticketStatusGetting   ticketStatus = "ticketStatusGetting"
+	ticketStatusMigrating ticketStatus = "ticketStatusMigrating"
+)
 
 type outputLevel string
 
@@ -67,13 +86,13 @@ type statistics struct {
 	orgsNotInPsa        int
 	orgsMigrated        int
 	orgsCheckedForUsers int
-	usersToCheck        int
-	usersMigrated       int
-	usersSkipped        int
-	ticketsToMigrate    int
-	ticketsMigrated     int
-	ticketOrgsMigrated  int
-	totalErrors         int
+	usersProcessed      int
+	ticketsToProcess    int
+	ticketsProcessed    int
+	ticketOrgsProcessed int
+
+	userMigrationErrors   int
+	ticketMigrationErrors int
 }
 
 type dimensions struct {
@@ -124,12 +143,13 @@ func newModel(ctx context.Context, client *Client) (*Model, error) {
 	slog.Info("time zone set", "timeZone", loc.String())
 
 	return &Model{
-		ctx:      ctx,
-		client:   client,
-		data:     data,
-		status:   awaitingStart,
-		timeZone: loc,
-		spinner:  spnr,
+		ctx:                 ctx,
+		client:              client,
+		data:                data,
+		status:              awaitingStart,
+		timeZone:            loc,
+		spinner:             spnr,
+		currentOrgMigration: newCurrentOrgDetails("none", ticketStatusGetting),
 	}, nil
 }
 
@@ -200,7 +220,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				checkOrgCmds = append(checkOrgCmds, m.checkOrg(org))
 			}
 
-			return m, tea.Sequence(checkOrgCmds...)
+			return m, tea.Batch(checkOrgCmds...)
 		case initOrgForm:
 			m.form = m.orgSelectionForm()
 			cmds = append(cmds, m.form.Init(), switchStatus(pickingOrgs))
@@ -275,7 +295,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case migratingUsers:
-		if len(m.data.UsersToMigrate) == m.usersMigrated+m.usersSkipped {
+		if len(m.data.UsersToMigrate) == m.usersProcessed {
 			if m.client.Cfg.StopAfterUsers {
 				slog.Info("stopping after user migration as per configuration")
 				cmds = append(cmds, switchStatus(done))
@@ -286,7 +306,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case migratingTickets:
-		if len(m.data.SelectedOrgs) == m.ticketOrgsMigrated {
+		if len(m.data.SelectedOrgs) == m.ticketOrgsProcessed {
 			cmds = append(cmds, switchStatus(done))
 		}
 	}
@@ -314,10 +334,25 @@ func (m *Model) View() string {
 	switch m.status {
 	case awaitingStart:
 		s += "Press the SPACE key to begin"
+	case comparingOrgs:
+		s += m.runSpinner(fmt.Sprintf("Checking organizations (%d/%d)", m.orgsChecked, len(m.data.AllOrgs)))
+	case gettingUsers:
+		s += m.runSpinner(fmt.Sprintf("Getting users for all selected orgs - got %d users", len(m.data.UsersToMigrate)))
+	case migratingUsers:
+		s += m.runSpinner(fmt.Sprintf("Migrating users (%d/%d)", m.usersProcessed, len(m.data.UsersToMigrate)))
 	case pickingOrgs:
 		s += m.form.View()
+	case gettingPsaTickets:
+		s += m.runSpinner("Getting existing tickets from the PSA")
 	case migratingTickets:
-		s += m.runSpinner(fmt.Sprintf("Migrating tickets for %s", m.data.CurrentMigratingOrg))
+		switch m.currentOrgMigration.status {
+		case ticketStatusGetting:
+			s += m.runSpinner(fmt.Sprintf("Getting Zendesk tickets for org %s", m.currentOrgMigration.orgName))
+		case ticketStatusMigrating:
+			s += m.runSpinner(fmt.Sprintf("Migrating tickets for org %s - %d/%d done", m.currentOrgMigration.orgName, m.currentOrgMigration.ticketsProcessed, m.currentOrgMigration.ticketsToProcess))
+		default:
+			s += m.runSpinner("Starting ticket migration")
+		}
 	case done:
 		s += "Migration complete"
 	default:
@@ -325,14 +360,18 @@ func (m *Model) View() string {
 	}
 
 	if m.status != awaitingStart && m.status != pickingOrgs {
-		s += fmt.Sprintf("\n\nUsers (Processed/Total): %d/%d\n"+
-			"Tickets (Migrated/Total): %d/%d\n"+
+		s += fmt.Sprintf("\n\nUsers Processed: %d\n"+
+			"Tickets Processed: %d\n"+
 			"Orgs Complete: %d\n"+
-			"Errors: %d\n",
-			m.usersMigrated+m.usersSkipped, m.usersToCheck,
-			m.ticketsMigrated, m.ticketsToMigrate,
-			m.ticketOrgsMigrated,
-			m.totalErrors)
+			"Orgs Not in PSA: %d\n"+
+			"User Migration Errors: %d\n"+
+			"Ticket Migration Errors: %d\n",
+			m.usersProcessed,
+			m.ticketsProcessed,
+			m.ticketOrgsProcessed,
+			m.orgsNotInPsa,
+			m.userMigrationErrors,
+			m.ticketMigrationErrors)
 	}
 
 	mainView := lipgloss.NewStyle().
@@ -352,7 +391,7 @@ func (m *Model) copyToClipboard(s string) tea.Cmd {
 		plaintext := re.ReplaceAllString(s, "")
 		if err := clipboard.WriteAll(plaintext); err != nil {
 			slog.Error("copying results to clipboard", "error", err)
-			m.writeToOutput(badRedOutput("ERROR", fmt.Errorf("couldn't copy results to clipboard: %w", err)), errOutput)
+			m.writeToOutput(badRedOutput("ERROR", "couldn't copy results to clipboard"), errOutput)
 			return nil
 		}
 		slog.Debug("copied result to clipboard")

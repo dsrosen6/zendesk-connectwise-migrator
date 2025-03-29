@@ -17,8 +17,7 @@ type Data struct {
 	SelectedOrgs   []*orgMigrationDetails
 	UsersToMigrate map[string]*userMigrationDetails
 
-	CurrentMigratingOrg string
-	Output              strings.Builder
+	Output strings.Builder
 }
 
 func (c *Client) newData() *Data {
@@ -45,7 +44,8 @@ type orgMigrationDetails struct {
 	HasTickets bool        `json:"has_tickets"`
 	Migrated   bool        `json:"org_migrated"`
 
-	MigrationSelected bool `json:"migration_selected"`
+	TicketsAlreadyInPSA int
+	MigrationSelected   bool `json:"migration_selected"`
 }
 
 type tagDetails struct {
