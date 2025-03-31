@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	totalConcurrent = 15
+	totalConcurrentTickets = 25
 )
 
 type ticketMigrationDetails struct {
@@ -65,7 +65,7 @@ func (m *Model) runTicketMigration(org *orgMigrationDetails) tea.Cmd {
 			}
 		}
 
-		sem := make(chan struct{}, totalConcurrent)
+		sem := make(chan struct{}, totalConcurrentTickets)
 		var wg sync.WaitGroup
 
 		for _, ticket := range ticketsToMigrate {
@@ -137,7 +137,9 @@ func (m *Model) runTicketMigration(org *orgMigrationDetails) tea.Cmd {
 				}
 
 				slog.Debug("runTicketMigration: migration complete for ticket", "orgName", org.ZendeskOrg.Name, "zendeskTicketId", ticket.ZendeskTicket.Id, "psaTicketId", ticket.PsaTicket.Id)
+				m.mu.Lock()
 				m.data.TicketsInPsa[strconv.Itoa(ticket.ZendeskTicket.Id)] = ticket.PsaTicket.Id
+				m.mu.Unlock()
 				m.newTicketsCreated++
 				m.ticketsProcessed++
 				m.currentOrgMigration.ticketsProcessed++

@@ -644,8 +644,8 @@ var exampleTag2 = TagDetails{
 }
 
 var defaultOutputLevels = OutputLevels{
-	NoAction: true,
-	Created:  true,
+	NoAction: false,
+	Created:  false,
 	Warn:     true,
 	Error:    true,
 }

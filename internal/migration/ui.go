@@ -56,7 +56,7 @@ func (m *Model) viewportDivider() string {
 }
 
 func (m *Model) appFooter() string {
-	return m.titleBar("C: Copy Results | ESC: Exit")
+	return m.titleBar("C: Copy Results | CTRL+Q: Exit")
 }
 
 func (m *Model) titleBar(t string) string {
@@ -87,7 +87,7 @@ func customFormTheme() *huh.Theme {
 }
 
 func quitKeyMap() key.Binding {
-	return key.NewBinding(key.WithKeys("esc", "ctrl+c"))
+	return key.NewBinding(key.WithKeys("ctrl+q"))
 }
 
 func customKeyMap() *huh.KeyMap {

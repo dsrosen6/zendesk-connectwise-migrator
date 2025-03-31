@@ -8,7 +8,7 @@ import (
 )
 
 var rootCmd = &cobra.Command{
-	Use:          "zendesk-connectwise-migrator",
+	Use:          "migrator",
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		opts, err := parseFlags(cmd)
@@ -31,11 +31,10 @@ func init() {
 	rootCmd.PersistentFlags().BoolP("debug", "d", false, "enable debug logging")
 	rootCmd.PersistentFlags().IntP("ticketLimit", "t", 0, "limit the number of tickets to migrate")
 	rootCmd.PersistentFlags().BoolP("migrateOpen", "o", false, "migrate open and closed tickets (default is closed only)")
-	rootCmd.PersistentFlags().Bool("cutNoAction", false, "don't show output of items with no action")
-	rootCmd.PersistentFlags().Bool("cutCreated", false, "don't show output of items created")
-	rootCmd.PersistentFlags().Bool("cutWarn", false, "don't show output of items with warnings")
-	rootCmd.PersistentFlags().Bool("cutError", false, "don't show output of items with errors")
-	rootCmd.PersistentFlags().Bool("onlyErrors", false, "only show output of items with errors")
+	rootCmd.PersistentFlags().Bool("showNoAction", false, "show output of items with no action (default is false)")
+	rootCmd.PersistentFlags().Bool("showCreated", false, "show output of items created (default is false)")
+	rootCmd.PersistentFlags().Bool("showWarn", true, "show output of items with warnings (default is true)")
+	rootCmd.PersistentFlags().Bool("showError", true, "show output of items with errors (default is true)")
 	rootCmd.PersistentFlags().Bool("stopAfterOrgs", false, "stop migration after getting orgs")
 	rootCmd.PersistentFlags().Bool("stopAfterUsers", false, "stop migration after getting users")
 }
@@ -56,11 +55,6 @@ func parseFlags(cmd *cobra.Command) (migration.CliOptions, error) {
 		return migration.CliOptions{}, fmt.Errorf("getting migrate open flag: %w", err)
 	}
 
-	onlyErrors, err := cmd.Flags().GetBool("onlyErrors")
-	if err != nil {
-		return migration.CliOptions{}, fmt.Errorf("getting only errors flag: %w", err)
-	}
-
 	stopAfterOrgs, err := cmd.Flags().GetBool("stopAfterOrgs")
 	if err != nil {
 		return migration.CliOptions{}, fmt.Errorf("getting stop after orgs flag: %w", err)
@@ -71,52 +65,37 @@ func parseFlags(cmd *cobra.Command) (migration.CliOptions, error) {
 		return migration.CliOptions{}, fmt.Errorf("getting stop after users flag: %w", err)
 	}
 
-	if onlyErrors {
-		return migration.CliOptions{
-			Debug:              debug,
-			TicketLimit:        ticketLimit,
-			MigrateOpenTickets: migrateOpen,
-			OutputLevels: migration.OutputLevels{
-				NoAction: false,
-				Created:  false,
-				Warn:     false,
-				Error:    true,
-			},
-		}, nil
-
-	} else {
-		cutNoAction, err := cmd.Flags().GetBool("cutNoAction")
-		if err != nil {
-			return migration.CliOptions{}, fmt.Errorf("getting cut no action flag: %w", err)
-		}
-
-		cutCreated, err := cmd.Flags().GetBool("cutCreated")
-		if err != nil {
-			return migration.CliOptions{}, fmt.Errorf("getting cut created flag: %w", err)
-		}
-
-		cutWarn, err := cmd.Flags().GetBool("cutWarn")
-		if err != nil {
-			return migration.CliOptions{}, fmt.Errorf("getting cut warn flag: %w", err)
-		}
-
-		cutError, err := cmd.Flags().GetBool("cutError")
-		if err != nil {
-			return migration.CliOptions{}, fmt.Errorf("getting cut error flag: %w", err)
-		}
-
-		return migration.CliOptions{
-			Debug:              debug,
-			TicketLimit:        ticketLimit,
-			MigrateOpenTickets: migrateOpen,
-			OutputLevels: migration.OutputLevels{
-				NoAction: !cutNoAction,
-				Created:  !cutCreated,
-				Warn:     !cutWarn,
-				Error:    !cutError,
-			},
-			StopAfterOrgs:  stopAfterOrgs,
-			StopAfterUsers: stopAfterUsers,
-		}, nil
+	showNoAction, err := cmd.Flags().GetBool("showNoAction")
+	if err != nil {
+		return migration.CliOptions{}, fmt.Errorf("getting show no action flag: %w", err)
 	}
+
+	showCreated, err := cmd.Flags().GetBool("showCreated")
+	if err != nil {
+		return migration.CliOptions{}, fmt.Errorf("getting show created flag: %w", err)
+	}
+
+	showWarn, err := cmd.Flags().GetBool("showWarn")
+	if err != nil {
+		return migration.CliOptions{}, fmt.Errorf("getting show warn flag: %w", err)
+	}
+
+	showError, err := cmd.Flags().GetBool("showError")
+	if err != nil {
+		return migration.CliOptions{}, fmt.Errorf("getting show error flag: %w", err)
+	}
+
+	return migration.CliOptions{
+		Debug:              debug,
+		TicketLimit:        ticketLimit,
+		MigrateOpenTickets: migrateOpen,
+		OutputLevels: migration.OutputLevels{
+			NoAction: showNoAction,
+			Created:  showCreated,
+			Warn:     showWarn,
+			Error:    showError,
+		},
+		StopAfterOrgs:  stopAfterOrgs,
+		StopAfterUsers: stopAfterUsers,
+	}, nil
 }

@@ -16,8 +16,8 @@ github.com/charmbracelet/colorprofile v0.3.0 h1:KtLh9uuu1RCt+Hml4s6Hz+kB1PfV3wi+
 github.com/charmbracelet/colorprofile v0.3.0/go.mod h1:oHJ340RS2nmG1zRGPmhJKJ/jf4FPNNk0P39/wBPA1G0=
 github.com/charmbracelet/huh v0.6.1-0.20250307163404-7a717414e37a h1:1/NIIo6MOVy/wDM6S70nnKyydUk4unlWI8iU5ynJRig=
 github.com/charmbracelet/huh v0.6.1-0.20250307163404-7a717414e37a/go.mod h1:KxTA8VTYA9RZqxcFZBnRLKNpCwHfu3fz0gNtjANA9Z4=
-github.com/charmbracelet/huh/spinner v0.0.0-20250327021907-684a9cf11922 h1:ZtaivJNoRsJaWkR19jrvOt8a7ZHVk+8kyK/Tt/dEJFM=
-github.com/charmbracelet/huh/spinner v0.0.0-20250327021907-684a9cf11922/go.mod h1:6O/Z+rCko0coy/tNKoTVPqatPE/0RN+1geO8Iii2h9g=
+github.com/charmbracelet/huh/spinner v0.0.0-20250331173942-310cd4a379ac h1:LxkefE0H6pZE+rjadglxNUPu7Wl1+CrdW9dVbNcrFGA=
+github.com/charmbracelet/huh/spinner v0.0.0-20250331173942-310cd4a379ac/go.mod h1:6O/Z+rCko0coy/tNKoTVPqatPE/0RN+1geO8Iii2h9g=
 github.com/charmbracelet/lipgloss v1.1.0 h1:vYXsiLHVkK7fp74RkV7b2kq9+zDLoEU4MZoFqR/noCY=
 github.com/charmbracelet/lipgloss v1.1.0/go.mod h1:/6Q8FR2o+kj8rz4Dq0zQc3vYf7X+B0binUUBwA0aL30=
 github.com/charmbracelet/x/ansi v0.8.0 h1:9GTq3xq9caJW8ZrBTe0LIe2fvfLR/bYXKTx2llXn7xE=
@@ -26,8 +26,8 @@ github.com/charmbracelet/x/cellbuf v0.0.13 h1:/KBBKHuVRbq1lYx5BzEHBAFBP8VcQzJejZ
 github.com/charmbracelet/x/cellbuf v0.0.13/go.mod h1:xe0nKWGd3eJgtqZRaN9RjMtK7xUYchjzPr7q6kcvCCs=
 github.com/charmbracelet/x/exp/golden v0.0.0-20241011142426-46044092ad91 h1:payRxjMjKgx2PaCWLZ4p3ro9y97+TVLZNaRZgJwSVDQ=
 github.com/charmbracelet/x/exp/golden v0.0.0-20241011142426-46044092ad91/go.mod h1:wDlXFlCrmJ8J+swcL/MnGUuYnqgQdW9rhSD61oNMb6U=
-github.com/charmbracelet/x/exp/strings v0.0.0-20250327172914-2fdc97757edf h1:Myu2mjqzk3Kum6T7zFMd8QKfqH6uNCkn5WgbxG0DABk=
-github.com/charmbracelet/x/exp/strings v0.0.0-20250327172914-2fdc97757edf/go.mod h1:pBhA0ybfXv6hDjQUZ7hk1lVxBiUbupdw5R31yPUViVQ=
+github.com/charmbracelet/x/exp/strings v0.0.0-20250331185309-2c96f2c3a435 h1:SZyIuyu15PL2KRd4bURlNGivziv13pPmM4nSRef32X0=
+github.com/charmbracelet/x/exp/strings v0.0.0-20250331185309-2c96f2c3a435/go.mod h1:pBhA0ybfXv6hDjQUZ7hk1lVxBiUbupdw5R31yPUViVQ=
 github.com/charmbracelet/x/term v0.2.1 h1:AQeHeLZ1OqSXhrAWpYUtZyX1T3zVxfpZuEQMIQaGIAQ=
 github.com/charmbracelet/x/term v0.2.1/go.mod h1:oQ4enTYFV7QN4m0i9mzHrViD7TQKvNEEkHUMCmsxdUg=
 github.com/cpuguy83/go-md2man/v2 v2.0.6/go.mod h1:oOW0eioCTA6cOiMLiUPZOpcVxMig6NIQQ7OS05n1F4g=

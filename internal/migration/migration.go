@@ -111,11 +111,24 @@ func runStartup(ctx context.Context, dir string, opts CliOptions) (*Client, erro
 }
 
 func newClient(zendeskCreds zendesk.Creds, cwCreds psa.Creds, cfg *Config) *Client {
-	httpClient := http.DefaultClient
+	httpClient := &http.Client{
+		Transport: newTransport(),
+	}
+	
 	return &Client{
 		ZendeskClient: zendesk.NewClient(zendeskCreds, httpClient),
 		CwClient:      psa.NewClient(cwCreds, httpClient),
 		Cfg:           cfg,
+	}
+}
+
+func newTransport() *http.Transport {
+	return &http.Transport{
+		MaxIdleConns:        100,
+		MaxConnsPerHost:     100,
+		IdleConnTimeout:     90 * time.Second,
+		DisableCompression:  true,
+		MaxIdleConnsPerHost: 100,
 	}
 }
 

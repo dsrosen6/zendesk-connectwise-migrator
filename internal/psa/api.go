@@ -42,6 +42,12 @@ func (r RateLimitErr) Error() string {
 	return "rate limit exceeded"
 }
 
+type BadGatewayErr struct{}
+
+func (b BadGatewayErr) Error() string {
+	return "bad gateway"
+}
+
 func NewClient(creds Creds, httpClient *http.Client) *Client {
 	username := fmt.Sprintf("%s+%s", creds.CompanyId, creds.PublicKey)
 
@@ -149,7 +155,12 @@ func (c *Client) apiRequest(ctx context.Context, method, url string, body io.Rea
 				return RateLimitErr{}
 			}
 
-			retryAfter = 5
+			if res.StatusCode == http.StatusBadGateway || res.StatusCode == http.StatusServiceUnavailable {
+				retryAfter = 10
+				return BadGatewayErr{}
+			}
+
+			retryAfter = 10
 			errorText, _ := io.ReadAll(res.Body)
 			slog.Debug("psa.apiRequest: response status", "statusCode", res.StatusCode, "responseBody", string(errorText))
 			return fmt.Errorf("received non-200 response: %s (status code: %d)", res.Status, res.StatusCode)
@@ -160,8 +171,8 @@ func (c *Client) apiRequest(ctx context.Context, method, url string, body io.Rea
 			return *p, nil
 		}
 
-		if !errors.As(err, &RateLimitErr{}) {
-			slog.Debug("psa.apiRequest: non-rate limit error encountered", "error", err)
+		if !errors.As(err, &RateLimitErr{}) && !errors.As(err, &BadGatewayErr{}) {
+			slog.Debug("psa.apiRequest: non-rate limit or gateway error encountered", "error", err)
 			return *p, err
 		}
 

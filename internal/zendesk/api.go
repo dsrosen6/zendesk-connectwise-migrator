@@ -98,6 +98,7 @@ func (c *Client) apiRequest(ctx context.Context, method, url string, body io.Rea
 
 		closeErr := func() error {
 			defer res.Body.Close()
+
 			if res.StatusCode == http.StatusOK || res.StatusCode == http.StatusCreated {
 				data, err := io.ReadAll(res.Body)
 				if err != nil {

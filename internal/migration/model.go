@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"log/slog"
 	"regexp"
+	"sync"
 	"time"
 )
 
@@ -31,6 +32,7 @@ Press %s to select organizations and begin the migration. For more options, see 
 }
 
 type Model struct {
+	mu                  sync.Mutex
 	ctx                 context.Context
 	client              *Client
 	data                *Data
@@ -204,7 +206,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 
 		switch msg.String() {
-		case "esc":
+		case "ctrl+q":
 			m.quitting = true
 			cmds = append(cmds, tea.Quit)
 		case "c":
@@ -245,19 +247,30 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Sequence(cmds...)
 		case gettingUsers:
 			m.data.UsersToMigrate = make(map[string]*userMigrationDetails)
+			var batches []tea.Cmd
+			var currentBatch []tea.Cmd
+			const batchSize = 20
+
 			for _, org := range m.data.SelectedOrgs {
-				cmds = append(cmds, m.getUsersToMigrate(org))
+				currentBatch = append(currentBatch, m.getUsersToMigrate(org))
+				if len(currentBatch) == batchSize {
+					batches = append(batches, tea.Batch(currentBatch...))
+					currentBatch = nil
+				}
 			}
 
+			if len(currentBatch) > 0 {
+				batches = append(batches, tea.Batch(currentBatch...))
+			}
+			cmds = append(cmds, tea.Batch(batches...))
 			return m, tea.Sequence(cmds...)
 		case migratingUsers:
-			for _, user := range m.data.UsersToMigrate {
-				cmds = append(cmds, m.migrateUser(user))
-			}
-
+			cmds = append(cmds, m.migrateUsers(m.data.UsersToMigrate))
 			return m, tea.Sequence(cmds...)
+
 		case gettingPsaTickets:
 			return m, m.getAlreadyMigrated()
+
 		case migratingTickets:
 			for _, org := range m.data.SelectedOrgs {
 				cmds = append(cmds, m.runTicketMigration(org))
@@ -316,17 +329,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, switchStatus(migratingUsers))
 		}
 
-	case migratingUsers:
-		if len(m.data.UsersToMigrate) == m.usersProcessed {
-			if m.client.Cfg.StopAfterUsers {
-				slog.Info("stopping after user migration as per configuration")
-				cmds = append(cmds, switchStatus(done))
-			} else {
-				slog.Info("all users migrated, beginning ticket migration")
-				cmds = append(cmds, switchStatus(gettingPsaTickets))
-			}
-		}
-
 	case migratingTickets:
 		if len(m.data.SelectedOrgs) == m.ticketOrgsProcessed {
 			cmds = append(cmds, switchStatus(done))
@@ -376,7 +378,7 @@ func (m *Model) View() string {
 			s += m.runSpinner("Starting ticket migration")
 		}
 	case done:
-		s += "Migration complete - press ESC to exit.\n\nTo run the migration again, exit and run the utility again."
+		s += "Migration complete - press CTRL+Q to exit.\n\nTo run the migration again, exit and run the utility again."
 	default:
 		s += m.runSpinner(string(m.status))
 	}
@@ -386,7 +388,7 @@ func (m *Model) View() string {
 			"New Users Created: %d\n"+
 			"Tickets Processed: %d\n"+
 			"New Tickets Created: %d\n"+
-			"Orgs Complete: %d\n"+
+			"Orgs Complete: %d/%d\n"+
 			"Orgs Not in PSA: %d\n"+
 			"User Migration Errors: %d\n"+
 			"Ticket Migration Errors: %d\n",
@@ -394,7 +396,7 @@ func (m *Model) View() string {
 			m.newUsersCreated,
 			m.ticketsProcessed,
 			m.newTicketsCreated,
-			m.ticketOrgsProcessed,
+			m.ticketOrgsProcessed, len(m.data.SelectedOrgs),
 			m.orgsNotInPsa,
 			m.userMigrationErrors,
 			m.ticketMigrationErrors)
