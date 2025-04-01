@@ -155,7 +155,7 @@ func (c *Client) apiRequest(ctx context.Context, method, url string, body io.Rea
 				return RateLimitErr{}
 			}
 
-			if res.StatusCode == http.StatusBadGateway || res.StatusCode == http.StatusServiceUnavailable {
+			if res.StatusCode == http.StatusBadGateway || res.StatusCode == http.StatusServiceUnavailable || res.StatusCode == http.StatusInternalServerError || res.StatusCode == http.StatusGatewayTimeout {
 				retryAfter = 10
 				return BadGatewayErr{}
 			}
