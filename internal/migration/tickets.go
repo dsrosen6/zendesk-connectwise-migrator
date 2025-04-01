@@ -23,31 +23,29 @@ type ticketMigrationDetails struct {
 	Migrated bool
 }
 
-type fatalErrMsg struct {
-	Msg string
-	Err error
+type activeTicketMigration struct {
+	orgName          string
+	status           ticketStatus
+	ticketsToProcess int
+	ticketsProcessed int
 }
 
 func (m *Model) runTicketMigration(org *orgMigrationDetails) tea.Cmd {
 	return func() tea.Msg {
-		m.currentOrgMigration = &currentOrgDetails{
-			orgName:          org.ZendeskOrg.Name,
-			status:           ticketStatusGetting,
-			ticketsToProcess: 0,
-			ticketsProcessed: 0,
-		}
+		slog.Debug("runTicketMigration: called", "orgName", org.ZendeskOrg.Name)
+		m.currentTicketMigration = newActiveTicketMigration(org.ZendeskOrg.Name, ticketStatusGetting)
 
 		zTickets, err := m.getZendeskTickets(org)
 		if err != nil {
 			m.ticketMigrationErrors++
 			slog.Error("getting tickets for org", "orgName", org.ZendeskOrg.Name, "error", err)
-			m.writeToOutput(badRedOutput("ERROR", fmt.Sprintf("couldn't get zendesk tickets for org %s: %s", org.ZendeskOrg.Name, err)), errOutput)
+			m.writeToOutput(badRedOutput("ERROR", fmt.Sprintf("%s: couldn't get zendesk tickets: %s", org.ZendeskOrg.Name, err)), errOutput)
 			return nil
 		}
 
-		m.currentOrgMigration.ticketsProcessed = org.TicketsAlreadyInPSA
-		m.currentOrgMigration.ticketsToProcess = len(zTickets)
-		m.currentOrgMigration.status = ticketStatusMigrating
+		m.currentTicketMigration.ticketsProcessed = org.TicketsAlreadyInPSA
+		m.currentTicketMigration.ticketsToProcess = len(zTickets)
+		m.currentTicketMigration.status = ticketStatusMigrating
 
 		var ticketsToMigrate []*ticketMigrationDetails
 		for _, ticket := range zTickets {
@@ -90,37 +88,37 @@ func (m *Model) runTicketMigration(org *orgMigrationDetails) tea.Cmd {
 					if errors.As(err, &noUserErr) {
 						m.ticketMigrationErrors++
 						m.ticketsProcessed++
-						m.currentOrgMigration.ticketsProcessed++
+						m.currentTicketMigration.ticketsProcessed++
 						slog.Warn("creating base ticket: no user found", "orgName", org.ZendeskOrg.Name, "zendeskTicketId", ticket.ZendeskTicket.Id, "userId", noUserErr.UserId)
-						m.writeToOutput(warnYellowOutput("WARN", fmt.Sprintf("couldn't create %s ticket %d to psa ticket: no user found", org.ZendeskOrg.Name, ticket.ZendeskTicket.Id)), errOutput)
+						m.writeToOutput(warnYellowOutput("WARN", fmt.Sprintf("%s: couldn't convert ticket %d to psa ticket: no user found", org.ZendeskOrg.Name, ticket.ZendeskTicket.Id)), errOutput)
 						return
 					}
 
 					slog.Error("creating base ticket", "orgName", org.ZendeskOrg.Name, "zendeskTicketId", ticket.ZendeskTicket.Id, "error", err)
-					m.writeToOutput(badRedOutput("ERROR", fmt.Sprintf("couldn't create %s ticket %d to psa ticket: %s", org.ZendeskOrg.Name, ticket.ZendeskTicket.Id, err)), errOutput)
+					m.writeToOutput(badRedOutput("ERROR", fmt.Sprintf("%s: couldn't convert ticket %d to psa ticket: %s", org.ZendeskOrg.Name, ticket.ZendeskTicket.Id, err)), errOutput)
 					m.ticketMigrationErrors++
 					m.ticketsProcessed++
-					m.currentOrgMigration.ticketsProcessed++
+					m.currentTicketMigration.ticketsProcessed++
 					return
 				}
 
 				comments, err := m.client.ZendeskClient.GetAllTicketComments(m.ctx, int64(ticket.ZendeskTicket.Id))
 				if err != nil {
 					slog.Error("getting comments for zendesk ticket", "orgName", org.ZendeskOrg.Name, "zendeskTicketId", ticket.ZendeskTicket.Id, "error", err)
-					m.writeToOutput(badRedOutput("ERROR", fmt.Sprintf("getting comments for %s ticket %d", org.ZendeskOrg.Name, ticket.ZendeskTicket.Id)), errOutput)
+					m.writeToOutput(badRedOutput("ERROR", fmt.Sprintf("%s: error getting comments for ticket %d", org.ZendeskOrg.Name, ticket.ZendeskTicket.Id)), errOutput)
 					m.ticketMigrationErrors++
 					m.ticketsProcessed++
-					m.currentOrgMigration.ticketsProcessed++
+					m.currentTicketMigration.ticketsProcessed++
 					return
 				}
 
 				slog.Debug("creating ticket notes", "zendeskId", ticket.ZendeskTicket.Id, "psaId", ticket.PsaTicket.Id)
 				if err := m.createTicketNotes(ticket, comments); err != nil {
 					slog.Error("creating comments for connectwise ticket", "orgName", org.ZendeskOrg.Name, "zendeskTicketId", ticket.ZendeskTicket.Id, "psaTicketId", ticket.PsaTicket.Id, "error", err)
-					m.writeToOutput(badRedOutput("ERROR", fmt.Sprintf("couldn't create comments on %s ticket %d: %s", org.ZendeskOrg.Name, ticket.PsaTicket.Id, err)), errOutput)
+					m.writeToOutput(badRedOutput("ERROR", fmt.Sprintf("%s: couldn't create comments for ticket %d: %s", org.ZendeskOrg.Name, ticket.PsaTicket.Id, err)), errOutput)
 					m.ticketMigrationErrors++
 					m.ticketsProcessed++
-					m.currentOrgMigration.ticketsProcessed++
+					m.currentTicketMigration.ticketsProcessed++
 					return
 				}
 
@@ -128,10 +126,10 @@ func (m *Model) runTicketMigration(org *orgMigrationDetails) tea.Cmd {
 					slog.Debug("runTicketMigration: closing ticket", "closedOn", ticket.ZendeskTicket.UpdatedAt)
 					if err := m.client.CwClient.UpdateTicketStatus(m.ctx, ticket.PsaTicket, m.data.PsaInfo.StatusClosed.Id); err != nil {
 						slog.Error("closing ticket", "orgName", org.ZendeskOrg.Name, "zendeskTicketId", ticket.ZendeskTicket.Id, "psaTicketId", ticket.PsaTicket.Id, "error", err)
-						m.writeToOutput(badRedOutput("ERROR", fmt.Sprintf("couldn't close %s psa ticket %d: %s", org.ZendeskOrg.Name, ticket.PsaTicket.Id, err)), errOutput)
+						m.writeToOutput(badRedOutput("ERROR", fmt.Sprintf("%s: couldn't close psa ticket %d: %s", org.ZendeskOrg.Name, ticket.PsaTicket.Id, err)), errOutput)
 						m.ticketMigrationErrors++
 						m.ticketsProcessed++
-						m.currentOrgMigration.ticketsProcessed++
+						m.currentTicketMigration.ticketsProcessed++
 						return
 					}
 				}
@@ -142,7 +140,7 @@ func (m *Model) runTicketMigration(org *orgMigrationDetails) tea.Cmd {
 				m.mu.Unlock()
 				m.newTicketsCreated++
 				m.ticketsProcessed++
-				m.currentOrgMigration.ticketsProcessed++
+				m.currentTicketMigration.ticketsProcessed++
 			}(ticket)
 		}
 
@@ -164,6 +162,7 @@ func (m *Model) getAlreadyMigrated() tea.Cmd {
 			}
 		}
 
+		slog.Debug("getAlreadyMigrated: found already migrated tickets", "count", len(tickets))
 		for _, ticket := range tickets {
 			for _, field := range ticket.CustomFields {
 				if field.Id == m.data.PsaInfo.ZendeskTicketIdField.Id {
@@ -172,7 +171,7 @@ func (m *Model) getAlreadyMigrated() tea.Cmd {
 						val := strconv.Itoa(int(field.Value.(float64)))
 						m.data.TicketsInPsa[val] = ticket.Id
 						m.ticketsProcessed++
-						for _, org := range m.data.AllOrgs {
+						for _, org := range m.data.SelectedOrgs {
 							if ticket.Company.Id == org.PsaOrg.Id {
 								org.TicketsAlreadyInPSA++
 								break
@@ -274,7 +273,7 @@ func (m *Model) createBaseTicket(org *orgMigrationDetails, ticket *ticketMigrati
 	var err error
 	baseTicket, err = m.client.CwClient.PostTicket(m.ctx, baseTicket)
 	if err != nil {
-		slog.Debug("createBaseTicket: posting base ticket to connectwise", "zendeskTicketId", ticket.ZendeskTicket.Id, "error", err)
+		slog.Debug("createBaseTicket: error posting base ticket to connectwise", "zendeskTicketId", ticket.ZendeskTicket.Id, "error", err)
 		return nil, fmt.Errorf("posting base ticket to connectwise: %w", err)
 	}
 
@@ -283,15 +282,13 @@ func (m *Model) createBaseTicket(org *orgMigrationDetails, ticket *ticketMigrati
 
 func (m *Model) createTicketNotes(ticket *ticketMigrationDetails, comments []zendesk.Comment) error {
 	for _, comment := range comments {
-		slog.Debug("creating ticket note", "zendeskTicketId", ticket.ZendeskTicket.Id, "commentId", comment.Id)
+		slog.Debug("createTicketNotes: called", "zendeskTicketId", ticket.ZendeskTicket.Id, "zendeskCommentId", comment.Id, "psaTicketId", ticket.PsaTicket.Id)
 		note := &psa.TicketNote{}
 
 		authorString := strconv.Itoa(int(comment.AuthorId))
 		if agent, ok := m.client.Cfg.AgentMappings[authorString]; ok {
-			slog.Debug("createTicketNotes: author is in agent mappings", "zendeskTicketId", ticket.ZendeskTicket.Id, "zendeskCommentId", comment.Id, "authorId", comment.AuthorId, "psaTicketId", ticket.PsaTicket.Id, "agentId", agent.PsaId)
 			note.Member = &psa.Member{Id: agent.PsaId}
 		} else if contact, ok := m.data.UsersInPsa[authorString]; ok {
-			slog.Debug("createTicketNotes: author is in org data", "zendeskTicketId", ticket.ZendeskTicket.Id, "zendeskCommentId", comment.Id, "authorId", comment.AuthorId, "psaTicketId", ticket.PsaTicket.Id, "contactId", contact.PsaContact.Id)
 			note.Contact = &psa.Contact{Id: contact.PsaContact.Id}
 		} else {
 			// check if user is in Zendesk and use it as a label - we aren't making non-selected org users in ConnectWise
@@ -300,30 +297,24 @@ func (m *Model) createTicketNotes(ticket *ticketMigrationDetails, comments []zen
 		}
 
 		if comment.Public {
-			slog.Debug("createTicketNotes: comment is public", "zendeskTicketId", ticket.ZendeskTicket.Id, "zendeskCommentId", comment.Id, "psaTicketId", ticket.PsaTicket.Id)
 			note.DetailDescriptionFlag = true
 		} else {
-			slog.Debug("createTicketNotes: comment is private", "zendeskTicketId", ticket.ZendeskTicket.Id, "zendeskCommentId", comment.Id, "psaTicketId", ticket.PsaTicket.Id)
 			note.DetailDescriptionFlag = true
 			note.InternalAnalysisFlag = true
 		}
 
-		slog.Debug("createTicketNotes: adding note created at timestamp", "zendeskTicketId", ticket.ZendeskTicket.Id, "zendeskCommentId", comment.Id, "psaTicketId", ticket.PsaTicket.Id)
 		note.Text += fmt.Sprintf("**%s**\n", comment.CreatedAt.In(m.timeZone).Format("Mon 1/2/2006 3:04PM"))
 
-		slog.Debug("createTicketNotes: checking for email CCs", "zendeskTicketId", ticket.ZendeskTicket.Id, "zendeskCommentId", comment.Id, "psaTicketId", ticket.PsaTicket.Id)
 		ccs := m.getCcString(&comment)
 		if ccs != "" {
-			slog.Debug("createTicketNotes: adding ccs to note", "zendeskTicketId", ticket.ZendeskTicket.Id, "zendeskCommentId", comment.Id, "psaTicketId", ticket.PsaTicket.Id, "ccs", ccs)
 			note.Text += fmt.Sprintf("**CCs:** %s\n", ccs)
 		}
 
-		slog.Debug("createTicketNotes: adding comment body to note", "zendeskTicketId", ticket.ZendeskTicket.Id, "zendeskCommentId", comment.Id, "psaTicketId", ticket.PsaTicket.Id)
 		note.Text += fmt.Sprintf("\n%s", comment.Body)
 
 		slog.Debug("createTicketNotes: sending post request to create note", "zendeskTicketId", ticket.ZendeskTicket.Id, "zendeskCommentId", comment.Id, "psaTicketId", ticket.PsaTicket.Id)
 		if err := m.client.CwClient.PostTicketNote(m.ctx, ticket.PsaTicket.Id, note); err != nil {
-			slog.Error("creating note in ticket", "zendeskTicketId", ticket.ZendeskTicket.Id, "zendeskCommentId", comment.Id, "psaTicketId", ticket.PsaTicket.Id, "error", err)
+			slog.Error("createTicketNote: error creating note in ticket", "zendeskTicketId", ticket.ZendeskTicket.Id, "zendeskCommentId", comment.Id, "psaTicketId", ticket.PsaTicket.Id, "error", err)
 			return fmt.Errorf("creating note in ticket: %w", err)
 		}
 	}
@@ -338,10 +329,8 @@ func (m *Model) getExternalUserDetails(ticket *ticketMigrationDetails, comment z
 	if user, ok := m.data.ExternalUsers[authorString]; !ok {
 		user, err := m.client.ZendeskClient.GetUser(m.ctx, comment.AuthorId)
 		if err != nil {
-			slog.Warn("createTicketNotes: couldn't find zendesk user for comment - using default label")
 		} else {
 			m.data.ExternalUsers[authorString] = user
-			slog.Debug("createTicketNotes: found non-org zendesk user via api for comment", "zendeskTicketId", ticket.ZendeskTicket.Id, "zendeskCommentId", comment.Id, "authorId", comment.AuthorId, "psaTicketId", ticket.PsaTicket.Id, "userName", user.Name, "userEmail", user.Email)
 			senderName = user.Name
 			if user.Email != "" {
 				senderEmail = user.Email
@@ -349,12 +338,13 @@ func (m *Model) getExternalUserDetails(ticket *ticketMigrationDetails, comment z
 		}
 
 	} else {
-		slog.Debug("createTicketNotes: found non-org zendesk user in data for comment", "zendeskTicketId", ticket.ZendeskTicket.Id, "zendeskCommentId", comment.Id, "authorId", comment.AuthorId, "psaTicketId", ticket.PsaTicket.Id, "userName", user.Name, "userEmail", user.Email)
 		senderName = user.Name
 		if user.Email != "" {
 			senderEmail = user.Email
 		}
 	}
+
+	slog.Debug("createTicketNotes: external user details", "zendeskTicketId", ticket.ZendeskTicket.Id, "zendeskCommentId", comment.Id, "authorId", comment.AuthorId, "psaTicketId", ticket.PsaTicket.Id, "senderName", senderName, "senderEmail", senderEmail)
 	return senderName, senderEmail
 }
 
@@ -369,7 +359,6 @@ func (m *Model) getCcString(comment *zendesk.Comment) string {
 	for _, cc := range comment.Via.Source.To.EmailCcs {
 		// check if cc is a string
 		if cc, ok := cc.(string); ok {
-			slog.Debug("getCcString: cc is a string", "commentId", comment.Id, "ccEmail", cc)
 			ccs = append(ccs, cc)
 			continue
 		}
@@ -377,24 +366,24 @@ func (m *Model) getCcString(comment *zendesk.Comment) string {
 		var ccString string
 		switch v := cc.(type) {
 		case int:
-			slog.Debug("getCcString: cc is an int", "commentId", comment.Id, "ccId", v)
 			ccString = strconv.Itoa(v)
 		case float64:
-			slog.Debug("getCcString: cc is a float64", "commentId", comment.Id, "ccId", v)
 			ccString = strconv.Itoa(int(v))
 		default:
 			continue
 		}
 
 		if agent, ok := m.client.Cfg.AgentMappings[ccString]; ok {
-			slog.Debug("getCcString: cc is in agent mappings", "commentId", comment.Id, "ccId", ccString, "email", agent.Email)
 			ccs = append(ccs, agent.Email)
 		} else {
 			if contact, ok := m.data.UsersInPsa[ccString]; ok {
-				slog.Debug("getCcString: cc is in org data", "commentId", comment.Id, "ccId", ccString, "email", contact.ZendeskUser.Email)
 				ccs = append(ccs, contact.ZendeskUser.Email)
 			}
 		}
 	}
 	return strings.Join(ccs, ", ")
+}
+
+func newActiveTicketMigration(orgName string, status ticketStatus) *activeTicketMigration {
+	return &activeTicketMigration{orgName: orgName, status: status}
 }

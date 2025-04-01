@@ -15,58 +15,29 @@ import (
 	"time"
 )
 
-func welcomeText() string {
-	return fmt.Sprintf(`
-This utility will copy all users and tickets from Zendesk to ConnectWise PSA.
-
-Custom fields will be updated in both systems to reflect the status of each item; if you run it again, it will only copy new items.
-
-It is recommended to make your terminal as big as possible to see all output, as it will overflow horizontally in the below "Results" section. For full output, press %s to copy to clipboard.
-
-If you exit in the middle of a migration, there may be incomplete tickets - %s
-
-Press %s to select organizations and begin the migration. For more options, see the README.
-`, textBlue("C"),
-		textYellow("you will need to delete these before running the utility again."),
-		textBlue("SPACE"))
-}
-
 type Model struct {
-	mu                  sync.Mutex
-	ctx                 context.Context
-	client              *Client
-	data                *Data
-	form                *huh.Form
-	formComplete        bool
-	status              status
-	timeZone            *time.Location
-	allOrgsSelected     bool
-	viewport            viewport.Model
-	spinner             spinner.Model
-	currentOrgMigration *currentOrgDetails
+	// API
+	mu     sync.Mutex
+	ctx    context.Context
+	client *Client
+
+	// Migration State
+	timeZone               *time.Location
+	form                   *huh.Form
+	formComplete           bool
+	allOrgsSelected        bool
+	status                 migrationStatus
+	currentTicketMigration *activeTicketMigration
+	data                   *Data
 	statistics
-	viewState
+
+	// UI
+	viewport viewport.Model
+	spinner  spinner.Model
 	dimensions
+	viewState
 	scrollManagement
 }
-
-type currentOrgDetails struct {
-	orgName          string
-	status           ticketStatus
-	ticketsToProcess int
-	ticketsProcessed int
-}
-
-func newCurrentOrgDetails(orgName string, status ticketStatus) *currentOrgDetails {
-	return &currentOrgDetails{orgName: orgName, status: status}
-}
-
-type ticketStatus string
-
-const (
-	ticketStatusGetting   ticketStatus = "ticketStatusGetting"
-	ticketStatusMigrating ticketStatus = "ticketStatusMigrating"
-)
 
 type outputLevel string
 
@@ -76,28 +47,6 @@ const (
 	warnOutput     outputLevel = "warnActionOutput"
 	errOutput      outputLevel = "errorActionOutput"
 )
-
-type status string
-
-const (
-	awaitingStart      status = "Awaiting Start"
-	gettingTags        status = "Getting Tags from Config"
-	gettingZendeskOrgs status = "Getting Zendesk Organizations"
-	comparingOrgs      status = "Checking for Organization Matches"
-	initOrgForm        status = "Initializing Form"
-	pickingOrgs        status = "Selecting Organizations"
-	gettingUsers       status = "Getting Users"
-	migratingUsers     status = "Migrating Users"
-	gettingPsaTickets  status = "Getting PSA Tickets"
-	migratingTickets   status = "Migrating Tickets"
-	done               status = "Done"
-)
-
-type switchStatusMsg status
-
-func switchStatus(s status) tea.Cmd {
-	return func() tea.Msg { return switchStatusMsg(s) }
-}
 
 type statistics struct {
 	orgsChecked         int
@@ -115,32 +64,9 @@ type statistics struct {
 	ticketMigrationErrors int
 }
 
-type dimensions struct {
-	windowWidth             int
-	windowHeight            int
-	mainHeaderHeight        int
-	mainFooterHeight        int
-	viewportDvdrHeight      int
-	verticalMarginHeight    int
-	verticalLeftForMainView int
-}
-
 type viewState struct {
 	ready    bool
 	quitting bool
-}
-
-type scrollManagement struct {
-	scrollOverride  bool
-	scrollCountDown bool
-}
-
-type apiErrMsg struct {
-	Err error
-}
-
-type timeConvertErrMsg struct {
-	Err error
 }
 
 func newModel(ctx context.Context, client *Client) (*Model, error) {
@@ -163,29 +89,14 @@ func newModel(ctx context.Context, client *Client) (*Model, error) {
 	slog.Info("time zone set", "timeZone", loc.String())
 
 	return &Model{
-		ctx:                 ctx,
-		client:              client,
-		data:                data,
-		status:              awaitingStart,
-		timeZone:            loc,
-		spinner:             spnr,
-		currentOrgMigration: newCurrentOrgDetails("none", ticketStatusGetting),
+		ctx:                    ctx,
+		client:                 client,
+		data:                   data,
+		status:                 awaitingStart,
+		timeZone:               loc,
+		spinner:                spnr,
+		currentTicketMigration: newActiveTicketMigration("none", ticketStatusGetting),
 	}, nil
-}
-
-func (c *Client) getTimeZone() (*time.Location, error) {
-	ls := "UTC"
-	if c.Cfg.TimeZone != "" {
-		slog.Debug("time zone manually set in config", "timeZone", c.Cfg.TimeZone)
-		ls = c.Cfg.TimeZone
-	}
-
-	loc, err := time.LoadLocation(ls)
-	if err != nil {
-		return nil, fmt.Errorf("converting time zone: %w", err)
-	}
-
-	return loc, nil
 }
 
 func (m *Model) Init() tea.Cmd {
@@ -225,8 +136,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case switchStatusMsg:
-		m.status = status(msg)
-		switch status(msg) {
+		m.status = migrationStatus(msg)
+		switch migrationStatus(msg) {
 		case gettingTags:
 			slog.Debug("getting tags from config")
 			return m, m.getTagDetails()
@@ -235,6 +146,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.statistics = statistics{}
 			return m, m.getOrgs()
 		case comparingOrgs:
+			slog.Debug("comparing orgs")
 			var checkOrgCmds []tea.Cmd
 			for _, org := range m.data.AllOrgs {
 				checkOrgCmds = append(checkOrgCmds, m.checkOrg(org))
@@ -242,10 +154,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			return m, tea.Batch(checkOrgCmds...)
 		case initOrgForm:
+			slog.Debug("initializing org form")
 			m.form = m.orgSelectionForm()
 			cmds = append(cmds, m.form.Init(), switchStatus(pickingOrgs))
 			return m, tea.Sequence(cmds...)
 		case gettingUsers:
+			slog.Debug("getting users for all selected orgs")
 			m.data.UsersToMigrate = make(map[string]*userMigrationDetails)
 			var batches []tea.Cmd
 			var currentBatch []tea.Cmd
@@ -265,6 +179,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, tea.Batch(batches...))
 			return m, tea.Sequence(cmds...)
 		case migratingUsers:
+			slog.Debug("migrating users")
 			cmds = append(cmds, m.migrateUsers(m.data.UsersToMigrate))
 			return m, tea.Sequence(cmds...)
 
@@ -369,11 +284,11 @@ func (m *Model) View() string {
 	case gettingPsaTickets:
 		s += m.runSpinner("Getting existing tickets from the PSA")
 	case migratingTickets:
-		switch m.currentOrgMigration.status {
+		switch m.currentTicketMigration.status {
 		case ticketStatusGetting:
-			s += m.runSpinner(fmt.Sprintf("Getting Zendesk tickets for org %s", m.currentOrgMigration.orgName))
+			s += m.runSpinner(fmt.Sprintf("Getting Zendesk tickets for org %s", m.currentTicketMigration.orgName))
 		case ticketStatusMigrating:
-			s += m.runSpinner(fmt.Sprintf("Migrating tickets for org %s - %d/%d done", m.currentOrgMigration.orgName, m.currentOrgMigration.ticketsProcessed, m.currentOrgMigration.ticketsToProcess))
+			s += m.runSpinner(fmt.Sprintf("Migrating tickets for org %s - %d/%d done", m.currentTicketMigration.orgName, m.currentTicketMigration.ticketsProcessed, m.currentTicketMigration.ticketsToProcess))
 		default:
 			s += m.runSpinner("Starting ticket migration")
 		}
@@ -411,6 +326,37 @@ func (m *Model) View() string {
 	views := []string{m.titleBar("Ticket Migration Utility"), mainView, m.viewportDivider(), m.viewport.View(), m.appFooter()}
 
 	return lipgloss.JoinVertical(lipgloss.Top, views...)
+}
+
+func welcomeText() string {
+	return fmt.Sprintf(`
+This utility will copy all users and tickets from Zendesk to ConnectWise PSA.
+
+Custom fields will be updated in both systems to reflect the migrationStatus of each item; if you run it again, it will only copy new items.
+
+It is recommended to make your terminal as big as possible to see all output, as it will overflow horizontally in the below "Results" section. For full output, press %s to copy to clipboard.
+
+If you exit in the middle of a migration, there may be incomplete tickets - %s
+
+Press %s to select organizations and begin the migration. For more options, see the README.
+`, textBlue("C"),
+		textYellow("you will need to delete these before running the utility again."),
+		textBlue("SPACE"))
+}
+
+func (c *Client) getTimeZone() (*time.Location, error) {
+	ls := "UTC"
+	if c.Cfg.TimeZone != "" {
+		slog.Debug("time zone manually set in config", "timeZone", c.Cfg.TimeZone)
+		ls = c.Cfg.TimeZone
+	}
+
+	loc, err := time.LoadLocation(ls)
+	if err != nil {
+		return nil, fmt.Errorf("converting time zone: %w", err)
+	}
+
+	return loc, nil
 }
 
 func (m *Model) copyToClipboard(s string) tea.Cmd {

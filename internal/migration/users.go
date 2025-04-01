@@ -22,7 +22,7 @@ func (m *Model) getUsersToMigrate(org *orgMigrationDetails) tea.Cmd {
 		users, err := m.client.ZendeskClient.GetOrganizationUsers(m.ctx, org.ZendeskOrg.Id)
 		if err != nil {
 			slog.Error("getUsersToMigrate: error getting users for org", "orgName", org.ZendeskOrg.Name, "error", err)
-			m.writeToOutput(badRedOutput("ERROR", fmt.Sprintf("couldn't get users for %s: %s", org.ZendeskOrg.Name, err)), errOutput)
+			m.writeToOutput(badRedOutput("ERROR", fmt.Sprintf("%s: couldn't get zendesk users: %s", org.ZendeskOrg.Name, err)), errOutput)
 			m.orgsCheckedForUsers++
 			m.userMigrationErrors++
 			return nil
@@ -58,11 +58,6 @@ func (m *Model) migrateUsers(users map[string]*userMigrationDetails) tea.Cmd {
 
 				slog.Debug("migrateUsers: migrating user", "userName", user.ZendeskUser.Name)
 				m.migrateUser(user)
-				if user.PsaContact != nil {
-					slog.Debug("migrateUsers: migrated user", "userName", user.ZendeskUser.Name, "psaContactId", user.PsaContact.Id)
-				} else {
-					slog.Debug("migrateUsers: user not migrated", "userName", user.ZendeskUser.Name)
-				}
 			}(user)
 		}
 
@@ -82,7 +77,7 @@ func (m *Model) migrateUsers(users map[string]*userMigrationDetails) tea.Cmd {
 func (m *Model) migrateUser(user *userMigrationDetails) {
 	if user.ZendeskUser.Email == "" {
 		slog.Warn("migrateUser: zendesk user has no email address - skipping", "userName", user.ZendeskUser.Name)
-		m.writeToOutput(warnYellowOutput("WARN", fmt.Sprintf("user has no email address, skipping migration: %s", user.ZendeskUser.Name)), warnOutput)
+		m.writeToOutput(warnYellowOutput("WARN", fmt.Sprintf("%s (%d): user has no email address, skipping migration", user.ZendeskUser.Name, user.ZendeskUser.Id)), warnOutput)
 		m.usersProcessed++
 		return
 	}
@@ -96,7 +91,7 @@ func (m *Model) migrateUser(user *userMigrationDetails) {
 			user.PsaContact, err = m.createPsaContact(user)
 			if err != nil {
 				slog.Error("migrateUser: error creating user", "userEmail", user.ZendeskUser.Email, "zendeskUserId", user.ZendeskUser.Id, "error", err)
-				m.writeToOutput(badRedOutput("ERROR", fmt.Sprintf("couldn't create user %s: %s", user.ZendeskUser.Email, err)), errOutput)
+				m.writeToOutput(badRedOutput("ERROR", fmt.Sprintf("%s (%d): couldn't create user: %s", user.ZendeskUser.Email, user.ZendeskUser.Id, err)), errOutput)
 				m.usersProcessed++
 				m.userMigrationErrors++
 				return
@@ -106,7 +101,7 @@ func (m *Model) migrateUser(user *userMigrationDetails) {
 
 		} else {
 			slog.Error("migrateUser: error matching zendesk user to psa user", "userEmail", user.ZendeskUser.Email, "zendeskUserId", user.ZendeskUser.Id, "error", err)
-			m.writeToOutput(badRedOutput("ERROR", fmt.Sprintf("couldn't match zendesk user %s to psa user: %s", user.ZendeskUser.Email, err)), errOutput)
+			m.writeToOutput(badRedOutput("ERROR", fmt.Sprintf("%s: couldn't match zendesk user to psa user: %s", user.ZendeskUser.Email, err)), errOutput)
 			m.usersProcessed++
 			m.userMigrationErrors++
 			return
@@ -117,7 +112,7 @@ func (m *Model) migrateUser(user *userMigrationDetails) {
 	if user.ZendeskUser.UserFields.PSAContactId != user.PsaContact.Id {
 		if err := m.updateContactFieldValue(user); err != nil {
 			slog.Error("migrateUser: error updating user contact field value in zendesk", "userEmail", user.ZendeskUser.Email, "zendeskUserId", user.ZendeskUser.Id, "psaContactId", user.PsaContact.Id, "error", err)
-			m.writeToOutput(badRedOutput("ERROR", fmt.Sprintf("couldn't update contact field in zendesk for user %s: %s", user.ZendeskUser.Email, err)), errOutput)
+			m.writeToOutput(badRedOutput("ERROR", fmt.Sprintf("%s: couldn't update contact field in zendesk for user: %s", user.ZendeskUser.Email, err)), errOutput)
 			m.usersProcessed++
 			m.userMigrationErrors++
 			return

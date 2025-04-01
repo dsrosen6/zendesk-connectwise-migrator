@@ -18,6 +18,21 @@ var (
 	}
 )
 
+type dimensions struct {
+	windowWidth             int
+	windowHeight            int
+	mainHeaderHeight        int
+	mainFooterHeight        int
+	viewportDvdrHeight      int
+	verticalMarginHeight    int
+	verticalLeftForMainView int
+}
+
+type scrollManagement struct {
+	scrollOverride  bool
+	scrollCountDown bool
+}
+
 func textRed(s string) string {
 	return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("1")).Render(s)
 }

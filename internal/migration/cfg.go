@@ -231,7 +231,7 @@ func (c *Client) validatePostClient(ctx context.Context) error {
 
 	if err := c.Cfg.validateConnectwiseStatuses(); err != nil {
 		if err := c.runBoardStatusForm(ctx, c.Cfg.Connectwise.DestinationBoardId); err != nil {
-			return fmt.Errorf("running board status form: %w", err)
+			return fmt.Errorf("running board migrationStatus form: %w", err)
 		}
 	}
 
@@ -549,11 +549,11 @@ func (c *Client) runTicketTypeForm(ctx context.Context, boardId int) error {
 
 func (cfg *Config) validateConnectwiseStatuses() error {
 	if cfg.Connectwise.OpenStatusId == 0 || cfg.Connectwise.ClosedStatusId == 0 {
-		slog.Warn("no open status ID or closed status ID set")
-		return errors.New("no open status ID or closed status ID set")
+		slog.Warn("no open migrationStatus ID or closed migrationStatus ID set")
+		return errors.New("no open migrationStatus ID or closed migrationStatus ID set")
 	}
 
-	slog.Debug("board status ids", "open", cfg.Connectwise.OpenStatusId, "closed", cfg.Connectwise.ClosedStatusId)
+	slog.Debug("board migrationStatus ids", "open", cfg.Connectwise.OpenStatusId, "closed", cfg.Connectwise.ClosedStatusId)
 	return nil
 }
 
@@ -581,26 +581,26 @@ func (c *Client) runBoardStatusForm(ctx context.Context, boardId int) error {
 	form := huh.NewForm(
 		huh.NewGroup(
 			huh.NewSelect[string]().
-				Title("Choose the Open status for the chosen board").
+				Title("Choose the Open migrationStatus for the chosen board").
 				Options(huh.NewOptions(statusNames...)...).
 				Value(&op)),
 		huh.NewGroup(
 			huh.NewSelect[string]().
-				Title("Choose the Closed status for the chosen board").
+				Title("Choose the Closed migrationStatus for the chosen board").
 				Options(huh.NewOptions(statusNames...)...).
 				Value(&cl)),
 	).WithShowHelp(false).WithKeyMap(customKeyMap()).WithTheme(customFormTheme())
 
 	if err := form.Run(); err != nil {
-		return fmt.Errorf("running board status form: %w", err)
+		return fmt.Errorf("running board migrationStatus form: %w", err)
 	}
 
 	if _, ok := statusMap[op]; !ok {
-		return errors.New("invalid open status selection")
+		return errors.New("invalid open migrationStatus selection")
 	}
 
 	if _, ok := statusMap[cl]; !ok {
-		return errors.New("invalid closed status selection")
+		return errors.New("invalid closed migrationStatus selection")
 	}
 
 	c.Cfg.Connectwise.OpenStatusId = statusMap[op]
