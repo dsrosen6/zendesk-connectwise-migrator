@@ -153,9 +153,11 @@ func (m *Model) checkOrg(org *orgMigrationDetails) tea.Cmd {
 				m.orgsChecked++
 				m.orgsMigrated++
 				org.Migrated = true
+				return nil
 			}
 		}
 
+		m.orgsChecked++
 		return nil
 	}
 }
