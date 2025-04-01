@@ -33,7 +33,7 @@ func (m *Model) getTagDetails() tea.Cmd {
 				endFallback:   m.client.Cfg.Zendesk.MasterEndDate,
 			}
 
-			start, end, err := convertDateStringsToTimeTime(tm)
+			start, end, err := convertStringToTime(tm)
 			if err != nil {
 				return timeConvertErrMsg{err}
 			}
@@ -137,11 +137,22 @@ func (m *Model) checkOrg(org *orgMigrationDetails) tea.Cmd {
 			return nil
 		}
 
-		if org.PsaOrg != nil && org.ZendeskOrg.OrganizationFields.PSACompanyId == int64(org.PsaOrg.Id) {
-			slog.Info("org ready for migration", "orgName", org.ZendeskOrg.Name, "zendeskOrgId", org.ZendeskOrg.Id)
-			m.orgsChecked++
-			m.orgsMigrated++
-			org.Migrated = true
+		if org.PsaOrg != nil {
+
+			if org.PsaOrg != nil && org.PsaOrg.DeletedFlag {
+				slog.Warn("org is marked as deleted in PSA", "orgName", org.ZendeskOrg.Name)
+				m.writeToOutput(warnYellowOutput("WARNING", fmt.Sprintf("org is marked as deleted in PSA: %s", org.ZendeskOrg.Name)), warnOutput)
+				m.orgsChecked++
+				m.orgsNotInPsa++
+				return nil
+			}
+
+			if org.ZendeskOrg.OrganizationFields.PSACompanyId == int64(org.PsaOrg.Id) {
+				slog.Info("org ready for migration", "orgName", org.ZendeskOrg.Name, "zendeskOrgId", org.ZendeskOrg.Id)
+				m.orgsChecked++
+				m.orgsMigrated++
+				org.Migrated = true
+			}
 		}
 
 		return nil
@@ -205,6 +216,10 @@ func (m *Model) orgSelectionForm() *huh.Form {
 func (m *Model) orgOptions() []huh.Option[*orgMigrationDetails] {
 	var orgOptions []huh.Option[*orgMigrationDetails]
 	for _, org := range m.data.AllOrgs {
+		if org.PsaOrg != nil && org.PsaOrg.DeletedFlag {
+			continue
+		}
+
 		if org.Migrated {
 			opt := huh.Option[*orgMigrationDetails]{
 				Key:   org.ZendeskOrg.Name,
@@ -222,7 +237,7 @@ func (m *Model) orgOptions() []huh.Option[*orgMigrationDetails] {
 	return orgOptions
 }
 
-func convertDateStringsToTimeTime(details *timeConversionDetails) (time.Time, time.Time, error) {
+func convertStringToTime(details *timeConversionDetails) (time.Time, time.Time, error) {
 	var startDate, endDate time.Time
 	var err error
 

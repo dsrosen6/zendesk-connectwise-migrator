@@ -1,8 +1,9 @@
 package psa
 
 type Company struct {
-	Id   int    `json:"id,omitempty"`
-	Name string `json:"name,omitempty"`
+	Id          int    `json:"id,omitempty"`
+	Name        string `json:"name,omitempty"`
+	DeletedFlag bool   `json:"deletedFlag,omitempty"`
 }
 
 type ContactPostBody struct {
