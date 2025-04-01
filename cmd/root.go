@@ -37,6 +37,7 @@ func init() {
 	rootCmd.PersistentFlags().Bool("showError", true, "show output of items with errors (default is true)")
 	rootCmd.PersistentFlags().Bool("stopAfterOrgs", false, "stop migration after getting orgs")
 	rootCmd.PersistentFlags().Bool("stopAfterUsers", false, "stop migration after getting users")
+	rootCmd.PersistentFlags().Bool("stopAtError", false, "stop migration after first error")
 }
 
 func parseFlags(cmd *cobra.Command) (migration.CliOptions, error) {
@@ -85,6 +86,11 @@ func parseFlags(cmd *cobra.Command) (migration.CliOptions, error) {
 		return migration.CliOptions{}, fmt.Errorf("getting show error flag: %w", err)
 	}
 
+	stopAtError, err := cmd.Flags().GetBool("stopAtError")
+	if err != nil {
+		return migration.CliOptions{}, fmt.Errorf("getting stop at error flag: %w", err)
+	}
+
 	return migration.CliOptions{
 		Debug:              debug,
 		TicketLimit:        ticketLimit,
@@ -97,5 +103,6 @@ func parseFlags(cmd *cobra.Command) (migration.CliOptions, error) {
 		},
 		StopAfterOrgs:  stopAfterOrgs,
 		StopAfterUsers: stopAfterUsers,
+		StopAtError:    stopAtError,
 	}, nil
 }

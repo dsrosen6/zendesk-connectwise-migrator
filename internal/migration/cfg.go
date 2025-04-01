@@ -40,6 +40,7 @@ type CliOptions struct {
 	OutputLevels       OutputLevels `mapstructure:"output_levels" json:"output_levels"`
 	StopAfterOrgs      bool
 	StopAfterUsers     bool
+	StopAtError        bool
 }
 
 type OutputLevels struct {

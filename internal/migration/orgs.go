@@ -110,6 +110,7 @@ func (m *Model) checkOrg(org *orgMigrationDetails) tea.Cmd {
 		if err != nil {
 			slog.Error("getting tickets for org", "orgName", org.ZendeskOrg.Name, "error", err)
 			m.writeToOutput(badRedOutput("ERROR", fmt.Sprintf("couldn't get tickets for org %s: %s", org.ZendeskOrg.Name, err)), errOutput)
+			m.updateErrCapture(err)
 			m.orgsChecked++
 			return nil
 		}

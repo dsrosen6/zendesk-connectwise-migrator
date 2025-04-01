@@ -49,6 +49,14 @@ func (m *Model) migrateUsers(users map[string]*userMigrationDetails) tea.Cmd {
 		var wg sync.WaitGroup
 
 		for _, user := range users {
+			m.mu.Lock()
+			if m.errCapture.flag && m.errCapture.err != nil && m.client.Cfg.StopAtError {
+				slog.Debug("runTicketMigration: stopping user migration due to error")
+				m.mu.Unlock()
+				break
+			}
+			m.mu.Unlock()
+
 			sem <- struct{}{}
 			wg.Add(1)
 
@@ -57,12 +65,26 @@ func (m *Model) migrateUsers(users map[string]*userMigrationDetails) tea.Cmd {
 				defer func() { <-sem }()
 
 				slog.Debug("migrateUsers: migrating user", "userName", user.ZendeskUser.Name)
-				m.migrateUser(user)
+				if err := m.migrateUser(user); err != nil {
+					slog.Error("migrateUsers: error migrating user", "userName", user.ZendeskUser.Name, "error", err)
+					m.writeToOutput(badRedOutput("ERROR", fmt.Sprintf("%s (%d): couldn't migrate user: %s", user.ZendeskUser.Name, user.ZendeskUser.Id, err)), errOutput)
+					m.errCapture.flag = true
+					m.errCapture.err = err
+					m.userMigrationErrors++
+					m.usersProcessed++
+				} else {
+					m.usersProcessed++
+				}
 			}(user)
 		}
 
 		wg.Wait()
 		slog.Debug("migrateUsers: done")
+
+		if m.errCapture.flag && m.errCapture.err != nil && m.client.Cfg.StopAtError {
+			slog.Info("migrateUsers: stopping after error as per configuration")
+			return switchStatusMsg(errored)
+		}
 
 		if m.client.Cfg.StopAfterUsers {
 			slog.Info("migrateUsers: stopping after user migration as per configuration")
@@ -70,16 +92,16 @@ func (m *Model) migrateUsers(users map[string]*userMigrationDetails) tea.Cmd {
 		}
 
 		slog.Info("migrateUsers: all users migrated, beginning ticket migration")
+
 		return switchStatusMsg(gettingPsaTickets)
 	}
 }
 
-func (m *Model) migrateUser(user *userMigrationDetails) {
+func (m *Model) migrateUser(user *userMigrationDetails) error {
 	if user.ZendeskUser.Email == "" {
 		slog.Warn("migrateUser: zendesk user has no email address - skipping", "userName", user.ZendeskUser.Name)
 		m.writeToOutput(warnYellowOutput("WARN", fmt.Sprintf("%s (%d): user has no email address, skipping migration", user.ZendeskUser.Name, user.ZendeskUser.Id)), warnOutput)
-		m.usersProcessed++
-		return
+		return nil
 	}
 
 	var err error
@@ -91,20 +113,14 @@ func (m *Model) migrateUser(user *userMigrationDetails) {
 			user.PsaContact, err = m.createPsaContact(user)
 			if err != nil {
 				slog.Error("migrateUser: error creating user", "userEmail", user.ZendeskUser.Email, "zendeskUserId", user.ZendeskUser.Id, "error", err)
-				m.writeToOutput(badRedOutput("ERROR", fmt.Sprintf("%s (%d): couldn't create user: %s", user.ZendeskUser.Email, user.ZendeskUser.Id, err)), errOutput)
-				m.usersProcessed++
-				m.userMigrationErrors++
-				return
+				return fmt.Errorf("creating psa contact: %w", err)
 			} else {
 				slog.Debug("migrateUser: created new psa user", "userName", user.ZendeskUser.Email, "psaContactId", user.PsaContact.Id)
 			}
 
 		} else {
 			slog.Error("migrateUser: error matching zendesk user to psa user", "userEmail", user.ZendeskUser.Email, "zendeskUserId", user.ZendeskUser.Id, "error", err)
-			m.writeToOutput(badRedOutput("ERROR", fmt.Sprintf("%s: couldn't match zendesk user to psa user: %s", user.ZendeskUser.Email, err)), errOutput)
-			m.usersProcessed++
-			m.userMigrationErrors++
-			return
+			return fmt.Errorf("matching zendesk user to psa contact: %w", err)
 		}
 	}
 
@@ -112,10 +128,7 @@ func (m *Model) migrateUser(user *userMigrationDetails) {
 	if user.ZendeskUser.UserFields.PSAContactId != user.PsaContact.Id {
 		if err := m.updateContactFieldValue(user); err != nil {
 			slog.Error("migrateUser: error updating user contact field value in zendesk", "userEmail", user.ZendeskUser.Email, "zendeskUserId", user.ZendeskUser.Id, "psaContactId", user.PsaContact.Id, "error", err)
-			m.writeToOutput(badRedOutput("ERROR", fmt.Sprintf("%s: couldn't update contact field in zendesk for user: %s", user.ZendeskUser.Email, err)), errOutput)
-			m.usersProcessed++
-			m.userMigrationErrors++
-			return
+			return fmt.Errorf("updating zendesk user contact field value: %w", err)
 		}
 	} else {
 		slog.Debug("migrateUser: user already has psa contact id field - skipping", "userEmail", user.ZendeskUser.Email, "zendeskUserId", user.ZendeskUser.Id, "psaContactId", user.PsaContact.Id)
@@ -123,8 +136,7 @@ func (m *Model) migrateUser(user *userMigrationDetails) {
 		m.data.UsersInPsa[strconv.Itoa(user.ZendeskUser.Id)] = user
 		m.mu.Unlock()
 
-		m.usersProcessed++
-		return
+		return nil
 	}
 
 	slog.Info("migrateUser: new user migrated", "userEmail", user.ZendeskUser.Email, "psaContactId", user.PsaContact.Id)
@@ -132,9 +144,8 @@ func (m *Model) migrateUser(user *userMigrationDetails) {
 	m.data.UsersInPsa[strconv.Itoa(user.ZendeskUser.Id)] = user
 	m.mu.Unlock()
 
-	m.usersProcessed++
 	m.newUsersCreated++
-	return
+	return nil
 }
 
 func (m *Model) matchZdUserToCwContact(user *zendesk.User) (*psa.Contact, error) {
@@ -156,6 +167,13 @@ func (m *Model) matchZdUserToCwContact(user *zendesk.User) (*psa.Contact, error)
 func (m *Model) createPsaContact(user *userMigrationDetails) (*psa.Contact, error) {
 	c := &psa.ContactPostBody{}
 	c.FirstName, c.LastName = separateName(user.ZendeskUser.Name)
+	if len(c.FirstName) > 30 {
+		return nil, errors.New("first name longer than 30 characters")
+	}
+
+	if len(c.LastName) > 30 {
+		return nil, errors.New("last name longer than 30 characters")
+	}
 
 	if user.PsaCompany == nil {
 		return nil, errors.New("user psa company is nil")

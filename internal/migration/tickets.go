@@ -67,6 +67,14 @@ func (m *Model) runTicketMigration(org *orgMigrationDetails) tea.Cmd {
 		var wg sync.WaitGroup
 
 		for _, ticket := range ticketsToMigrate {
+			m.mu.Lock()
+			if m.errCapture.flag && m.errCapture.err != nil {
+				slog.Debug("runTicketMigration: stopping ticket migration due to error")
+				m.mu.Unlock()
+				break
+			}
+			m.mu.Unlock()
+
 			sem <- struct{}{}
 			wg.Add(1)
 
@@ -74,80 +82,82 @@ func (m *Model) runTicketMigration(org *orgMigrationDetails) tea.Cmd {
 				defer wg.Done()
 				defer func() { <-sem }()
 
-				if m.client.Cfg.TicketLimit > 0 && m.ticketsProcessed >= m.client.Cfg.TicketLimit {
-					slog.Info("testLimit reached")
-					m.ticketOrgsProcessed++
-					return
-				}
-
-				slog.Debug("creating base ticket", "zendeskId", ticket.ZendeskTicket.Id)
-				var err error
-				ticket.PsaTicket, err = m.createBaseTicket(org, ticket)
-				if err != nil {
-					var noUserErr NoUserErr
-					if errors.As(err, &noUserErr) {
-						m.ticketMigrationErrors++
-						m.ticketsProcessed++
-						m.currentTicketMigration.ticketsProcessed++
-						slog.Warn("creating base ticket: no user found", "orgName", org.ZendeskOrg.Name, "zendeskTicketId", ticket.ZendeskTicket.Id, "userId", noUserErr.UserId)
-						m.writeToOutput(warnYellowOutput("WARN", fmt.Sprintf("%s: couldn't convert ticket %d to psa ticket: no user found", org.ZendeskOrg.Name, ticket.ZendeskTicket.Id)), errOutput)
-						return
-					}
-
-					slog.Error("creating base ticket", "orgName", org.ZendeskOrg.Name, "zendeskTicketId", ticket.ZendeskTicket.Id, "error", err)
-					m.writeToOutput(badRedOutput("ERROR", fmt.Sprintf("%s: couldn't convert ticket %d to psa ticket: %s", org.ZendeskOrg.Name, ticket.ZendeskTicket.Id, err)), errOutput)
+				if err := m.migrateTicket(ticket, org); err != nil {
+					slog.Error("runTicketMigration: error migrating ticket", "orgName", org.ZendeskOrg.Name, "zendeskTicketId", ticket.ZendeskTicket.Id, "error", err)
+					m.writeToOutput(badRedOutput("ERROR", fmt.Sprintf("%s: couldn't migrate ticket %d: %s", org.ZendeskOrg.Name, ticket.ZendeskTicket.Id, err)), errOutput)
+					m.errCapture.flag = true
+					m.errCapture.err = err
 					m.ticketMigrationErrors++
 					m.ticketsProcessed++
 					m.currentTicketMigration.ticketsProcessed++
-					return
-				}
-
-				comments, err := m.client.ZendeskClient.GetAllTicketComments(m.ctx, int64(ticket.ZendeskTicket.Id))
-				if err != nil {
-					slog.Error("getting comments for zendesk ticket", "orgName", org.ZendeskOrg.Name, "zendeskTicketId", ticket.ZendeskTicket.Id, "error", err)
-					m.writeToOutput(badRedOutput("ERROR", fmt.Sprintf("%s: error getting comments for ticket %d", org.ZendeskOrg.Name, ticket.ZendeskTicket.Id)), errOutput)
-					m.ticketMigrationErrors++
+				} else {
 					m.ticketsProcessed++
 					m.currentTicketMigration.ticketsProcessed++
-					return
 				}
-
-				slog.Debug("creating ticket notes", "zendeskId", ticket.ZendeskTicket.Id, "psaId", ticket.PsaTicket.Id)
-				if err := m.createTicketNotes(ticket, comments); err != nil {
-					slog.Error("creating comments for connectwise ticket", "orgName", org.ZendeskOrg.Name, "zendeskTicketId", ticket.ZendeskTicket.Id, "psaTicketId", ticket.PsaTicket.Id, "error", err)
-					m.writeToOutput(badRedOutput("ERROR", fmt.Sprintf("%s: couldn't create comments for ticket %d: %s", org.ZendeskOrg.Name, ticket.PsaTicket.Id, err)), errOutput)
-					m.ticketMigrationErrors++
-					m.ticketsProcessed++
-					m.currentTicketMigration.ticketsProcessed++
-					return
-				}
-
-				if ticket.ZendeskTicket.Status == "closed" || ticket.ZendeskTicket.Status == "solved" {
-					slog.Debug("runTicketMigration: closing ticket", "closedOn", ticket.ZendeskTicket.UpdatedAt)
-					if err := m.client.CwClient.UpdateTicketStatus(m.ctx, ticket.PsaTicket, m.data.PsaInfo.StatusClosed.Id); err != nil {
-						slog.Error("closing ticket", "orgName", org.ZendeskOrg.Name, "zendeskTicketId", ticket.ZendeskTicket.Id, "psaTicketId", ticket.PsaTicket.Id, "error", err)
-						m.writeToOutput(badRedOutput("ERROR", fmt.Sprintf("%s: couldn't close psa ticket %d: %s", org.ZendeskOrg.Name, ticket.PsaTicket.Id, err)), errOutput)
-						m.ticketMigrationErrors++
-						m.ticketsProcessed++
-						m.currentTicketMigration.ticketsProcessed++
-						return
-					}
-				}
-
-				slog.Debug("runTicketMigration: migration complete for ticket", "orgName", org.ZendeskOrg.Name, "zendeskTicketId", ticket.ZendeskTicket.Id, "psaTicketId", ticket.PsaTicket.Id)
-				m.mu.Lock()
-				m.data.TicketsInPsa[strconv.Itoa(ticket.ZendeskTicket.Id)] = ticket.PsaTicket.Id
-				m.mu.Unlock()
-				m.newTicketsCreated++
-				m.ticketsProcessed++
-				m.currentTicketMigration.ticketsProcessed++
 			}(ticket)
 		}
 
 		wg.Wait()
 		m.ticketOrgsProcessed++
+		slog.Debug("runTicketMigration: done migrating tickets", "orgName", org.ZendeskOrg.Name, "ticketsProcessed", m.currentTicketMigration.ticketsProcessed)
+
+		if m.errCapture.flag && m.errCapture.err != nil && m.client.Cfg.StopAtError {
+			slog.Info("runTicketMigration: stopping after error as per configuration")
+			return switchStatusMsg(errored)
+		}
+
 		return nil
 	}
+}
+
+func (m *Model) migrateTicket(ticket *ticketMigrationDetails, org *orgMigrationDetails) error {
+	if m.client.Cfg.TicketLimit > 0 && m.ticketsProcessed >= m.client.Cfg.TicketLimit {
+		slog.Info("testLimit reached")
+		m.ticketOrgsProcessed++
+		return nil
+	}
+
+	slog.Debug("creating base ticket", "zendeskId", ticket.ZendeskTicket.Id)
+	var err error
+	ticket.PsaTicket, err = m.createBaseTicket(org, ticket)
+	if err != nil {
+		var noUserErr NoUserErr
+		if errors.As(err, &noUserErr) {
+			slog.Warn("creating base ticket: no user found", "orgName", org.ZendeskOrg.Name, "zendeskTicketId", ticket.ZendeskTicket.Id, "userId", noUserErr.UserId)
+			m.writeToOutput(warnYellowOutput("WARN", fmt.Sprintf("%s: couldn't convert ticket %d to psa ticket: no user found in psa (zendesk user %d)", org.ZendeskOrg.Name, ticket.ZendeskTicket.Id, ticket.ZendeskTicket.RequesterId)), errOutput)
+			return nil
+		}
+
+		slog.Error("creating base ticket", "orgName", org.ZendeskOrg.Name, "zendeskTicketId", ticket.ZendeskTicket.Id, "error", err)
+		return fmt.Errorf("creating base ticket: %w", err)
+	}
+
+	comments, err := m.client.ZendeskClient.GetAllTicketComments(m.ctx, int64(ticket.ZendeskTicket.Id))
+	if err != nil {
+		slog.Error("getting comments for zendesk ticket", "orgName", org.ZendeskOrg.Name, "zendeskTicketId", ticket.ZendeskTicket.Id, "error", err)
+		return fmt.Errorf("getting comments for ticket %d: %w", ticket.ZendeskTicket.Id, err)
+	}
+
+	slog.Debug("creating ticket notes", "zendeskId", ticket.ZendeskTicket.Id, "psaId", ticket.PsaTicket.Id)
+	if err := m.createTicketNotes(ticket, comments); err != nil {
+		slog.Error("creating comments for connectwise ticket", "orgName", org.ZendeskOrg.Name, "zendeskTicketId", ticket.ZendeskTicket.Id, "psaTicketId", ticket.PsaTicket.Id, "error", err)
+		return fmt.Errorf("creating comments for ticket %d: %w", ticket.ZendeskTicket.Id, err)
+	}
+
+	if ticket.ZendeskTicket.Status == "closed" || ticket.ZendeskTicket.Status == "solved" {
+		slog.Debug("runTicketMigration: closing ticket", "closedOn", ticket.ZendeskTicket.UpdatedAt)
+		if err := m.client.CwClient.UpdateTicketStatus(m.ctx, ticket.PsaTicket, m.data.PsaInfo.StatusClosed.Id); err != nil {
+			slog.Error("closing ticket", "orgName", org.ZendeskOrg.Name, "zendeskTicketId", ticket.ZendeskTicket.Id, "psaTicketId", ticket.PsaTicket.Id, "error", err)
+			return fmt.Errorf("closing ticket %d: %w", ticket.PsaTicket.Id, err)
+		}
+	}
+
+	slog.Debug("runTicketMigration: migration complete for ticket", "orgName", org.ZendeskOrg.Name, "zendeskTicketId", ticket.ZendeskTicket.Id, "psaTicketId", ticket.PsaTicket.Id)
+	m.mu.Lock()
+	m.data.TicketsInPsa[strconv.Itoa(ticket.ZendeskTicket.Id)] = ticket.PsaTicket.Id
+	m.mu.Unlock()
+	m.newTicketsCreated++
+	return nil
 }
 
 func (m *Model) getAlreadyMigrated() tea.Cmd {

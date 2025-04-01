@@ -16,6 +16,7 @@ const (
 	gettingPsaTickets  migrationStatus = "Getting PSA Tickets"
 	migratingTickets   migrationStatus = "Migrating Tickets"
 	done               migrationStatus = "Done"
+	errored            migrationStatus = "Error"
 )
 
 type switchStatusMsg migrationStatus

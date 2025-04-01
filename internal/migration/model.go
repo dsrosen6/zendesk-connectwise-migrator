@@ -29,6 +29,7 @@ type Model struct {
 	status                 migrationStatus
 	currentTicketMigration *activeTicketMigration
 	data                   *Data
+	errCapture             errCapture
 	statistics
 
 	// UI
@@ -47,6 +48,11 @@ const (
 	warnOutput     outputLevel = "warnActionOutput"
 	errOutput      outputLevel = "errorActionOutput"
 )
+
+type errCapture struct {
+	flag bool
+	err  error
+}
 
 type statistics struct {
 	orgsChecked         int
@@ -159,6 +165,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.form.Init(), switchStatus(pickingOrgs))
 			return m, tea.Sequence(cmds...)
 		case gettingUsers:
+			if m.errCapture.flag {
+				slog.Debug("stopping migration due to error")
+				return m, nil
+			}
 			slog.Debug("getting users for all selected orgs")
 			m.data.UsersToMigrate = make(map[string]*userMigrationDetails)
 			var batches []tea.Cmd
@@ -179,14 +189,26 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, tea.Batch(batches...))
 			return m, tea.Sequence(cmds...)
 		case migratingUsers:
+			if m.errCapture.flag {
+				slog.Debug("stopping migration due to error")
+				return m, nil
+			}
 			slog.Debug("migrating users")
 			cmds = append(cmds, m.migrateUsers(m.data.UsersToMigrate))
 			return m, tea.Sequence(cmds...)
 
 		case gettingPsaTickets:
+			if m.errCapture.flag {
+				slog.Debug("stopping migration due to error")
+				return m, nil
+			}
 			return m, m.getAlreadyMigrated()
 
 		case migratingTickets:
+			if m.errCapture.flag {
+				slog.Debug("stopping migration due to error")
+				return m, nil
+			}
 			for _, org := range m.data.SelectedOrgs {
 				cmds = append(cmds, m.runTicketMigration(org))
 			}
@@ -294,6 +316,8 @@ func (m *Model) View() string {
 		}
 	case done:
 		s += "Migration complete - press CTRL+Q to exit.\n\nTo run the migration again, exit and run the utility again."
+	case errored:
+		s += fmt.Sprintf("An error occured: %s\n\n", m.errCapture.err.Error())
 	default:
 		s += m.runSpinner(string(m.status))
 	}
@@ -371,5 +395,17 @@ func (m *Model) copyToClipboard(s string) tea.Cmd {
 		slog.Debug("copied result to clipboard")
 		m.writeToOutput(goodGreenOutput("SUCCESS", "copied results to clipboard"), createdOutput)
 		return nil
+	}
+}
+
+func (m *Model) updateErrCapture(err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if err != nil {
+		m.errCapture.flag = true
+		m.errCapture.err = err
+	} else {
+		m.errCapture.flag = false
 	}
 }
